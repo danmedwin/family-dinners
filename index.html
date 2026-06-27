@@ -4,6 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Family Dinner Planner</title>
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="theme-color" content="#2f7d4f" />
+<link rel="apple-touch-icon" href="icon-180.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Dinners" />
 <style>
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
@@ -79,6 +86,11 @@ details.prefs[open]>summary{ margin-bottom:4px;}
 .ic-links{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;}
 .ic-link{ display:inline-block; background:#eef6f0; border:1px solid #cfe6d8; color:#1f6b3f; border-radius:999px; padding:6px 12px; font-size:.88rem; text-decoration:none; font-weight:600;}
 .ic-link:hover{ background:#e2efe7;}
+.day-select{ font-size:.85rem; padding:6px 8px; border:1px solid #ccd4cd; border-radius:8px; background:#fff; color:#28352e;}
+.cooknotes{ margin-top:12px; border-top:1px dashed #e0e5e0; padding-top:10px;}
+.cooknote-input{ font-size:.9rem; padding:7px 9px; border:1px solid #ccd4cd; border-radius:8px;}
+.note-row{ font-size:.86rem; padding:5px 0; border-bottom:1px solid #f3f5f3;}
+.upd-badge{ font-size:.72rem; font-weight:600; background:#fef0d8; color:#8a5a12; border-radius:999px; padding:2px 8px; margin-left:6px;}
 </style>
 </head>
 <body>
@@ -123,6 +135,7 @@ details.prefs[open]>summary{ margin-bottom:4px;}
       <button class="btn secondary" id="btnApprove" style="display:none;">✓ Approve &amp; build shopping list</button>
     </div>
     <div id="planArea"></div>
+    <div id="calendarArea"></div>
     <div id="shoppingArea"></div>
   </div>
 
@@ -175,7 +188,12 @@ details.prefs[open]>summary{ margin-bottom:4px;}
       </select>
     </div>
     <div class="field"><label>Ingredients (one per line — keep names simple for Instacart search)</label>
-      <textarea id="amIng" rows="7" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;" placeholder="firm tofu&#10;broccoli&#10;soy sauce&#10;jasmine rice"></textarea>
+      <textarea id="amIng" rows="6" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;" placeholder="firm tofu&#10;broccoli&#10;soy sauce&#10;jasmine rice"></textarea>
+      <div id="amIngAiRow" style="display:none;margin-top:6px;"><button class="btn secondary small" id="btnAiIngredients">✨ Suggest ingredients from steps</button></div>
+    </div>
+    <div class="field"><label>Recipe / instructions (optional — shows in the calendar event notes)</label>
+      <textarea id="amRecipe" rows="6" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;" placeholder="1. Press and cube the tofu.&#10;2. Stir-fry veggies 5 min.&#10;3. Add sauce, simmer, serve over rice."></textarea>
+      <div id="amRecipeAiRow" style="display:none;margin-top:6px;"><button class="btn secondary small" id="btnAiRecipe">✨ Draft recipe from ingredients</button></div>
     </div>
     <div class="row" style="justify-content:flex-end;margin-top:6px;">
       <button class="btn secondary" data-close="addMealModal">Cancel</button>
@@ -190,6 +208,24 @@ details.prefs[open]>summary{ margin-bottom:4px;}
     <h2>Who's using this device?</h2>
     <p class="muted" style="font-size:.88rem;margin:0 0 14px;">We'll remember this on this device so your ratings are attributed to you. You can still rate for others (like the kids).</p>
     <div id="whoList"></div>
+  </div>
+</div>
+
+<!-- Recipe editor modal -->
+<div class="modal-bg" id="recipeModal">
+  <div class="modal">
+    <h2>Update recipe</h2>
+    <p class="muted" id="recipeNoteHint" style="font-size:.85rem;margin:0 0 10px;"></p>
+    <div id="recipeAiRow" style="display:none;margin-bottom:10px;">
+      <button class="btn secondary small" id="btnAiRevise">✨ Revise from latest note (AI)</button>
+    </div>
+    <div class="field"><label>Recipe / instructions</label>
+      <textarea id="recipeText" rows="10" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;"></textarea>
+    </div>
+    <div class="row" style="justify-content:flex-end;">
+      <button class="btn secondary" data-close="recipeModal">Cancel</button>
+      <button class="btn" id="btnSaveRecipe">Save (keeps old version)</button>
+    </div>
   </div>
 </div>
 
@@ -217,13 +253,17 @@ const FAMILY_EMAIL = "dinners@medw.in";
 const INSTACART_WORKER_URL = "";
 // Your Instacart store slug (used for the no-key tap-through links).
 const INSTACART_STORE_SLUG = "publix";
+// OPTIONAL: AI recipe-revise backend (Cloudflare Worker). Holds your Anthropic key as a
+// secret — never put the key here or in GitHub. Blank = manual recipe editing only.
+// See RECIPE_AI_SETUP.md.
+const RECIPE_AI_WORKER_URL = "";
 /* ============================================================ */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, setPersistence, browserLocalPersistence, signInWithEmailAndPassword,
          onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, collection, doc, onSnapshot, setDoc, getDocs, getDoc,
-         updateDoc, addDoc, deleteDoc, deleteField, writeBatch }
+         updateDoc, addDoc, deleteDoc, deleteField, writeBatch, arrayUnion }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const NOT_CONFIGURED = firebaseConfig.apiKey.startsWith("REPLACE");
@@ -264,12 +304,44 @@ const SEED_MEALS = [
   { name:"Herb-Roasted Turkey Breast & Veggies", type:"poultry", dairy:false, healthy:true, desc:"Roast turkey breast with carrots and potatoes.", ing:["turkey breast","carrots","baby potatoes","green beans","olive oil","mixed herbs"] }
 ];
 
+/* Recipes for the starter meals (keyed by exact name). Used for fresh installs and to
+   backfill existing meals that have no recipe yet. */
+const RECIPES = {
+  "Sheet-Pan Lemon Herb Chicken & Veggies":"1. Heat oven to 425°F.\n2. Toss chicken thighs, broccoli, and carrots with olive oil, minced garlic, rosemary, salt, and pepper.\n3. Spread on a sheet pan and squeeze lemon over.\n4. Roast 30–35 min, until chicken reaches 165°F and veggies are tender.",
+  "Teriyaki Salmon Bowls":"1. Cook the rice.\n2. Whisk soy sauce, honey, and grated ginger.\n3. Brush salmon with the sauce; bake at 400°F for 12–15 min.\n4. Steam the broccoli.\n5. Serve salmon over rice with broccoli; drizzle extra sauce and sprinkle sesame seeds.",
+  "Turkey Taco Night":"1. Brown the ground turkey in a skillet.\n2. Add taco seasoning and a splash of water; simmer 5 min.\n3. Warm the tortillas and heat the rinsed black beans.\n4. Fill tortillas with turkey, beans, lettuce, tomato, and avocado.",
+  "Veggie & Tofu Stir-Fry":"1. Cook the rice.\n2. Press and cube the tofu; pan-fry until golden.\n3. Add the mixed vegetables and stir-fry 4–5 min.\n4. Stir in minced garlic and ginger, then soy sauce; toss 1 min.\n5. Serve over rice.",
+  "Mediterranean Chicken Bowls":"1. Cook the quinoa.\n2. Season chicken breast with salt, pepper, and olive oil; grill or pan-sear to 165°F, then slice.\n3. Chop cucumber and tomato.\n4. Build bowls with quinoa, chicken, veggies, olives, and a scoop of hummus.",
+  "Spaghetti with Turkey Meatballs":"1. Mix ground turkey with breadcrumbs, minced garlic, grated onion, salt, and pepper; roll into balls.\n2. Brown the meatballs, then simmer in marinara 15 min.\n3. Cook the spaghetti.\n4. Serve meatballs and sauce over the pasta.",
+  "Black Bean & Veggie Quesadillas":"1. Sauté diced bell pepper and corn 3 min.\n2. Mash in the rinsed black beans.\n3. Fill tortillas with the mixture and a little shredded cheese.\n4. Cook in a dry skillet until golden and crisp on both sides.\n5. Serve with salsa.",
+  "Honey Garlic Chicken Thighs":"1. Cook the rice.\n2. Sear chicken thighs until browned.\n3. Add minced garlic, honey, and soy sauce; simmer until glazed and chicken reaches 165°F.\n4. Steam the green beans.\n5. Serve over rice with sauce spooned on top.",
+  "Beef & Broccoli":"1. Cook the rice.\n2. Toss beef strips with a little cornstarch.\n3. Sear the beef, then remove.\n4. Stir-fry broccoli with garlic and ginger.\n5. Return the beef, add soy sauce and a splash of water; simmer until thickened.\n6. Serve over rice.",
+  "Baked Falafel Pita Bowls":"1. Prepare falafel from the mix and bake at 400°F until crisp, about 20 min.\n2. Thin tahini with lemon and water for sauce.\n3. Chop cucumber, tomato, and parsley.\n4. Fill pitas with falafel, veggies, and tahini sauce.",
+  "Lentil Soup with Crusty Bread":"1. Sauté diced onion, carrot, and celery until soft.\n2. Add garlic, then the lentils and vegetable broth.\n3. Simmer 25–30 min, until lentils are tender.\n4. Season to taste; serve with crusty bread.",
+  "Grilled Chicken Fajitas":"1. Slice chicken breast, peppers, and onion.\n2. Toss the chicken with fajita seasoning.\n3. Sear the chicken until cooked, then remove.\n4. Sauté peppers and onion until charred.\n5. Combine, squeeze lime, and serve in warm tortillas.",
+  "Veggie Burgers & Sweet Potato Fries":"1. Cut sweet potatoes into fries, toss with oil and salt, and bake at 425°F for 25–30 min, flipping once.\n2. Cook the veggie patties per package.\n3. Toast the buns and build with lettuce, tomato, and ketchup.",
+  "Baked Cod with Roasted Potatoes":"1. Halve baby potatoes, toss with oil, garlic, and salt; roast at 425°F for 20 min.\n2. Add cod (brushed with oil, lemon, and parsley) to the pan; roast 12–15 min more.\n3. Steam the green beans.\n4. Serve with lemon.",
+  "Chicken Soup with Matzo Balls":"1. Simmer chicken with carrots, celery, onion, and dill in water 45–60 min, skimming as needed.\n2. Prepare matzo balls from the mix and simmer in the broth about 20 min.\n3. Shred the chicken back in, season, and serve.",
+  "Stuffed Bell Peppers":"1. Heat oven to 375°F.\n2. Halve and seed the peppers.\n3. Brown the turkey with diced onion; stir in cooked rice and crushed tomatoes.\n4. Fill the peppers, cover with foil, and bake 30 min; uncover for 10 min more.",
+  "Pesto Pasta with Cherry Tomatoes":"1. Cook the pasta and reserve a little pasta water.\n2. Halve the cherry tomatoes.\n3. Toss the hot pasta with pesto, loosening with pasta water.\n4. Fold in the tomatoes; top with toasted pine nuts and basil.",
+  "Korean-Style Beef Bowls":"1. Cook the rice.\n2. Brown the ground beef.\n3. Add garlic, soy sauce, and a touch of sesame oil; simmer 2–3 min.\n4. Serve over rice with sliced cucumber and scallions.",
+  "Veggie Chili":"1. Sauté onion and bell pepper.\n2. Stir in chili powder, then the crushed tomatoes, rinsed beans, and corn.\n3. Simmer 25–30 min.\n4. Season to taste and serve.",
+  "Baked Teriyaki Tofu & Rice":"1. Cook the rice.\n2. Press and cube the tofu; toss with teriyaki sauce.\n3. Bake at 400°F for 25 min, flipping once.\n4. Steam the broccoli.\n5. Serve tofu and broccoli over rice with sesame seeds.",
+  "Chicken Shawarma Bowls":"1. Cook the rice.\n2. Toss chicken thighs with cumin, paprika, garlic, salt, and oil.\n3. Roast or pan-sear to 165°F, then slice.\n4. Thin tahini with lemon and water.\n5. Build bowls with rice, chicken, tomato, cucumber, and tahini.",
+  "Salmon & Asparagus Sheet Pan":"1. Heat oven to 425°F.\n2. Halve baby potatoes, toss with oil and garlic, and roast 15 min.\n3. Add salmon and asparagus (with oil, lemon, and salt); roast 12–15 min more, until salmon flakes.",
+  "Margherita Flatbread & Salad":"1. Heat oven to 450°F.\n2. Top flatbread with sliced tomato and fresh mozzarella.\n3. Bake 8–10 min, until the cheese melts.\n4. Add fresh basil.\n5. Toss mixed greens with balsamic and serve alongside.",
+  "Soba Noodle Veggie Bowl":"1. Cook the soba and rinse under cold water.\n2. Cook the edamame.\n3. Julienne the carrots and cucumber.\n4. Toss the noodles with soy sauce and sesame oil.\n5. Top with veggies, edamame, and scallions; serve chilled or at room temperature.",
+  "Mango Black Bean Tacos":"1. Warm the rinsed black beans.\n2. Dice mango and avocado; shred the cabbage.\n3. Warm the tortillas.\n4. Fill with beans, mango, avocado, and cabbage; squeeze lime and add cilantro.",
+  "Herb-Roasted Turkey Breast & Veggies":"1. Heat oven to 375°F.\n2. Rub turkey breast with oil, mixed herbs, salt, and pepper.\n3. Surround with carrots and baby potatoes.\n4. Roast until the turkey reaches 165°F, about 60–75 min.\n5. Add the green beans for the last 15 min; rest before slicing."
+};
+
 /* ---------------- In-memory state (synced from Firestore) ---------------- */
 let meals = [];                 // [{id, name, type, dairy, healthy, desc, ing, ratings:{rater:val}}]
 const PLACEHOLDER_RATERS = ["Adult 1","Adult 2","Kid 1","Kid 2","Kid 3"];
 const FAMILY_RATERS = ["Dan","Lydia","Zimra","Gavi","Jasmine"];
 let config = { raters:FAMILY_RATERS.slice(), batch:3 };
 let plan = [];                  // [mealId,...] (shared)
+let assign = {};                // { mealId: 'YYYY-MM-DD' } day assignment (shared)
 let history = [];               // [{date, mealIds:[...]}]
 let shoppingState = [];
 
@@ -306,6 +378,7 @@ function weightedSample(pool,n){
 
 /* ---------------- Firestore writes ---------------- */
 async function writePlan(ids){ await setDoc(doc(db,'app','state'), { plan: ids }, { merge:true }); }
+async function writeAssign(mealId, day){ assign={...assign,[mealId]:day}; await setDoc(doc(db,'app','state'), { assign:{[mealId]:day} }, { merge:true }); }
 async function writeConfig(c){ await setDoc(doc(db,'app','config'), c, { merge:true }); }
 async function proposePlan(){
   if(meals.length < config.batch){ toast("Add more meals to the library first."); return; }
@@ -338,19 +411,92 @@ async function markMade(mealId){
   const ref=doc(db,'meals',mealId);
   await updateDoc(ref,{ made: !m.made, lastMade: !m.made ? new Date().toISOString() : (m.lastMade||null) });
 }
+async function addCookNote(mealId){
+  const inp=document.querySelector('[data-noteinput="'+mealId+'"]'); if(!inp) return;
+  const text=inp.value.trim(); if(!text){ return; }
+  const by=meValid()?myName:'Someone';
+  await updateDoc(doc(db,'meals',mealId), { cookNotes: arrayUnion({ text, date:new Date().toISOString(), by }) });
+  inp.value=''; toast('Note added.');
+}
+let recipeEditId=null;
+function openRecipeEditor(mealId){
+  const m=meals.find(x=>x.id===mealId); if(!m) return; recipeEditId=mealId;
+  $('recipeText').value=m.recipe||'';
+  const notes=m.cookNotes||[]; const latest=notes.length?notes[notes.length-1]:null;
+  $('recipeNoteHint').textContent= latest ? ('Latest note: “'+latest.text+'”') : 'No cook notes yet — you can still edit the recipe by hand.';
+  $('recipeAiRow').style.display = (RECIPE_AI_WORKER_URL && latest) ? '' : 'none';
+  $('recipeModal').classList.add('show');
+}
+async function aiReviseRecipe(){
+  const m=meals.find(x=>x.id===recipeEditId); if(!m) return;
+  const notes=m.cookNotes||[]; const latest=notes.length?notes[notes.length-1].text:'';
+  if(!latest){ toast('No note to revise from.'); return; }
+  const btn=$('btnAiRevise'); btn.disabled=true; btn.textContent='Revising…';
+  try{
+    const r=await fetch(RECIPE_AI_WORKER_URL,{ method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ dish:m.name, recipe:$('recipeText').value, note:latest }) });
+    if(!r.ok) throw new Error('ai '+r.status);
+    const d=await r.json(); if(!d.recipe) throw new Error('empty');
+    $('recipeText').value=d.recipe; toast('Revised — review, then Save.');
+  }catch(e){ toast('AI unavailable — edit manually.'); }
+  btn.disabled=false; btn.textContent='✨ Revise from latest note (AI)';
+}
+async function saveRecipeFromModal(){
+  const m=meals.find(x=>x.id===recipeEditId); if(!m) return;
+  const newText=$('recipeText').value.trim();
+  const by=meValid()?myName:'Someone';
+  const hist=(m.recipeHistory||[]).slice();
+  if((m.recipe||'').trim() && (m.recipe||'')!==newText){ hist.unshift({ text:m.recipe, date:new Date().toISOString(), by }); }
+  await updateDoc(doc(db,'meals',m.id), { recipe:newText, recipeHistory:hist, recipeUpdatedAt:new Date().toISOString(), recipeUpdatedBy:by });
+  closeModal('recipeModal'); toast('Recipe updated.');
+}
+/* AI helpers in the Add-meal form (shown only when RECIPE_AI_WORKER_URL is set) */
+async function aiIngredientsFromSteps(){
+  const steps=$('amRecipe').value.trim(); const name=$('amName').value.trim()||'this dish';
+  if(!steps){ toast('Add the steps first, then generate ingredients.'); return; }
+  const btn=$('btnAiIngredients'); btn.disabled=true; btn.textContent='Thinking…';
+  try{
+    const r=await fetch(RECIPE_AI_WORKER_URL,{ method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ task:'ingredients', dish:name, recipe:steps }) });
+    if(!r.ok) throw new Error('ai '+r.status);
+    const d=await r.json(); const list=d.ingredients||[]; if(!list.length) throw new Error('empty');
+    $('amIng').value=list.join('\n'); toast('Ingredients drafted — edit as needed.');
+  }catch(e){ toast('AI unavailable — add ingredients manually.'); }
+  btn.disabled=false; btn.textContent='✨ Suggest ingredients from steps';
+}
+async function aiRecipeFromIngredients(){
+  const ing=$('amIng').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  const name=$('amName').value.trim()||'this dish'; const notes=$('amDesc').value.trim();
+  if(!ing.length){ toast('Add some ingredients first, then draft a recipe.'); return; }
+  const btn=$('btnAiRecipe'); btn.disabled=true; btn.textContent='Thinking…';
+  try{
+    const r=await fetch(RECIPE_AI_WORKER_URL,{ method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ task:'recipe', dish:name, ingredients:ing, notes }) });
+    if(!r.ok) throw new Error('ai '+r.status);
+    const d=await r.json(); if(!d.recipe) throw new Error('empty');
+    $('amRecipe').value=d.recipe; toast('Recipe drafted — edit as needed.');
+  }catch(e){ toast('AI unavailable — write the recipe manually.'); }
+  btn.disabled=false; btn.textContent='✨ Draft recipe from ingredients';
+}
+function openAddMeal(){
+  const show = RECIPE_AI_WORKER_URL ? '' : 'none';
+  const a=$('amIngAiRow'), b=$('amRecipeAiRow'); if(a) a.style.display=show; if(b) b.style.display=show;
+  $('addMealModal').classList.add('show');
+}
 async function approvePlan(){
   if(!plan.length) return;
   await addDoc(collection(db,'history'), { date:new Date().toISOString(), mealIds: plan.slice() });
   buildShoppingList();
-  toast("Plan approved — shopping list ready below.");
-  window.scrollTo({ top:$('shoppingArea').offsetTop-20, behavior:'smooth' });
+  buildCalendar();
+  toast("Plan approved — calendar + shopping list ready below.");
+  window.scrollTo({ top:$('calendarArea').offsetTop-20, behavior:'smooth' });
 }
 async function saveMeal(){
   const name=$('amName').value.trim(); if(!name){ toast("Give the meal a name."); return; }
   const ing=$('amIng').value.split('\n').map(s=>s.trim()).filter(Boolean);
   if(!ing.length){ toast("Add at least one ingredient."); return; }
-  await addDoc(collection(db,'meals'), { name, desc:$('amDesc').value.trim(), type:$('amType').value, dairy:false, healthy:true, ing, ratings:{} });
-  $('amName').value=''; $('amDesc').value=''; $('amIng').value='';
+  await addDoc(collection(db,'meals'), { name, desc:$('amDesc').value.trim(), type:$('amType').value, dairy:false, healthy:true, ing, recipe:$('amRecipe').value.trim(), ratings:{} });
+  $('amName').value=''; $('amDesc').value=''; $('amIng').value=''; $('amRecipe').value='';
   closeModal('addMealModal'); toast("Meal added.");
 }
 async function removeMeal(id){
@@ -403,8 +549,12 @@ function renderPlan(){
   area.innerHTML=`<div class="section-title">This plan</div>`+pm.map(m=>`<div class="card">
     <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
     <button class="btn ghost small" data-reroll="${m.id}">🔄 Swap</button></div>
-    ${tagsHtml(m)}${ingredientsHtml(m)}
-    <div class="rate-row" style="margin-top:10px;">${summaryLine(m)} ${madeBtn(m)}</div></div>`).join('');
+    ${tagsHtml(m)}${ingredientsHtml(m)}${recipeHtml(m)}
+    <div class="rate-row" style="margin-top:10px;gap:10px;flex-wrap:wrap;">
+      <label style="font-size:.86rem;color:#4c5a51;">📅 Day: <select class="day-select" data-assign="${m.id}">${dayOptions(assign[m.id]||'')}</select></label>
+      ${madeBtn(m)}
+    </div>
+    <div class="rate-row">${summaryLine(m)}</div></div>`).join('');
   $('btnApprove').style.display='';
 }
 function renderLibrary(){
@@ -414,7 +564,7 @@ function renderLibrary(){
     sorted.map(m=>`<div class="card">
       <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
       <button class="btn ghost small" data-remove="${m.id}" title="Remove">✕</button></div>
-      ${tagsHtml(m)}
+      ${tagsHtml(m)}${recipeHtml(m)}
       <div class="rate-row">${summaryLine(m)} ${madeBtn(m)}</div>
       <details class="prefs" data-libid="${m.id}" ${openLib.has(m.id)?'open':''}><summary>Set 👍 / 👎 per person</summary>
         ${orderedRaters().map(r=>`<div class="rate-row"><span class="rate-name">${raterLabel(r)}</span>${thumbsInput(m,r)}</div>`).join('')}
@@ -427,9 +577,9 @@ function renderCooked(){
   area.innerHTML=made.map(m=>`<div class="card">
     <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
     <button class="btn ghost small" data-made="${m.id}">↩︎ Unmark</button></div>
-    ${tagsHtml(m)}
+    ${tagsHtml(m)}${recipeHtml(m)}
     <div class="ratings"><div class="rate-row"><strong style="font-size:.85rem;">Rate after eating (1–5★)</strong>${summaryLine(m)}</div>
-    ${orderedRaters().map(r=>`<div class="rate-row"><span class="rate-name">${raterLabel(r)}</span>${starsInput(m,r)}</div>`).join('')}</div></div>`).join('');
+    ${orderedRaters().map(r=>`<div class="rate-row"><span class="rate-name">${raterLabel(r)}</span>${starsInput(m,r)}</div>`).join('')}</div>${cookNotesHtml(m)}</div>`).join('');
 }
 function renderRatings(){
   const area=$('ratingsArea');
@@ -469,6 +619,80 @@ function renderWhoList(){
 }
 function setWho(enc){ myName=decodeURIComponent(enc); localStorage.setItem('fdp_me',myName); closeModal('whoModal'); renderAll(); toast('Set to '+myName+' on this device.'); }
 function maybePromptWho(){ if(whoPrompted) return; if(config.raters.length && !meValid()){ whoPrompted=true; openWho(); } }
+/* ---- day assignment + calendar (.ics) ---- */
+function pad(n){ return String(n).padStart(2,'0'); }
+function recipeHtml(m){
+  const hist=m.recipeHistory||[];
+  if(!m.recipe && !hist.length) return '';
+  const badge=hist.length?`<span class="upd-badge">✏️ updated</span>`:'';
+  let h=`<details class="ingredients"><summary>Recipe${badge}</summary><div style="white-space:pre-wrap;margin-top:6px;">${escapeHtml(m.recipe||'')}</div>`;
+  if(hist.length){
+    h+=`<details class="prefs" style="margin-top:8px;"><summary>Earlier versions (${hist.length})</summary>`+
+      hist.map((v,i)=>`<div class="card" style="margin-top:6px;"><div class="muted" style="font-size:.74rem;">${i===hist.length-1?'Original':'Earlier'}${v.date?' · '+escapeHtml(String(v.date).slice(0,10)):''}${v.by?' · '+escapeHtml(v.by):''}</div><div style="white-space:pre-wrap;">${escapeHtml(v.text||'')}</div></div>`).join('')+
+      `</details>`;
+  }
+  return h+`</details>`;
+}
+function cookNotesHtml(m){
+  const notes=m.cookNotes||[];
+  const log=notes.length
+    ? notes.slice().reverse().map(n=>`<div class="note-row">${escapeHtml(n.text)} <span class="muted" style="font-size:.74rem;">— ${n.by?escapeHtml(n.by):'someone'}${n.date?', '+escapeHtml(String(n.date).slice(0,10)):''}</span></div>`).join('')
+    : '<div class="empty-hint" style="padding:6px 0;">No notes yet. Add prep notes after cooking.</div>';
+  return `<div class="cooknotes">
+    <div class="rate-row"><strong style="font-size:.85rem;">Cook notes</strong>
+      <button class="btn ghost small" data-editrecipe="${m.id}">✏️ Update recipe</button></div>
+    ${log}
+    <div class="row" style="margin-top:8px;gap:6px;flex-wrap:nowrap;">
+      <input type="text" class="cooknote-input flex-grow" data-noteinput="${m.id}" placeholder="e.g. needed 10 more min; less salt" style="flex:1;">
+      <button class="btn small" data-addnote="${m.id}">Add</button>
+    </div></div>`;
+}
+function dayOptions(sel){
+  const wd=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const today=new Date(); today.setHours(0,0,0,0);
+  const opts=['<option value="">— day —</option>'];
+  for(let i=0;i<7;i++){ const dt=new Date(today.getTime()+i*86400000);
+    const val=dt.getFullYear()+'-'+pad(dt.getMonth()+1)+'-'+pad(dt.getDate());
+    const lbl=(i===0?'Today':wd[dt.getDay()])+' '+(dt.getMonth()+1)+'/'+dt.getDate();
+    opts.push(`<option value="${val}" ${val===sel?'selected':''}>${lbl}</option>`);
+  }
+  return opts.join('');
+}
+function mealNotes(m){
+  let n=(m.desc||'');
+  if(m.ing&&m.ing.length) n+=(n?'\n\n':'')+'Ingredients:\n'+m.ing.map(x=>'• '+x).join('\n');
+  if(m.recipe) n+='\n\nRecipe:\n'+m.recipe;
+  return n;
+}
+function icsEsc(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\r?\n/g,'\\n'); }
+function icsFor(events){
+  const now=new Date();
+  const stamp=now.getUTCFullYear()+pad(now.getUTCMonth()+1)+pad(now.getUTCDate())+'T'+pad(now.getUTCHours())+pad(now.getUTCMinutes())+pad(now.getUTCSeconds())+'Z';
+  const out=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Family Dinner Planner//EN','CALSCALE:GREGORIAN'];
+  events.forEach((e,i)=>{
+    const [y,mo,d]=e.day.split('-').map(Number);
+    out.push('BEGIN:VEVENT',
+      'UID:'+(e.m.id||'meal')+'-'+e.day+'-'+(Date.now()+i)+'@familydinner',
+      'DTSTAMP:'+stamp,
+      'DTSTART:'+y+pad(mo)+pad(d)+'T180000',
+      'DTEND:'+y+pad(mo)+pad(d)+'T190000',
+      'SUMMARY:'+icsEsc(e.m.name),
+      'DESCRIPTION:'+icsEsc(mealNotes(e.m)),
+      'END:VEVENT');
+  });
+  out.push('END:VCALENDAR');
+  return out.join('\r\n');
+}
+function buildCalendar(){
+  const area=$('calendarArea'); if(!area) return;
+  const events=plan.map(id=>({ m:meals.find(x=>x.id===id), day:assign[id] })).filter(e=>e.m && e.day);
+  if(!events.length){ area.innerHTML='<div class="banner warn">📅 No days assigned. Pick a day on each dinner above, then Approve again to add them to your calendar.</div>'; return; }
+  const url=URL.createObjectURL(new Blob([icsFor(events)],{type:'text/calendar'}));
+  area.innerHTML=`<div class="section-title">📅 Calendar</div>
+    <div class="banner">${events.length} dinner(s) ready at 6:00 PM. Tap to add, then choose your <strong>Family</strong> calendar (set Family as your default calendar to make it one tap).</div>
+    <a class="btn" href="${url}" download="family-dinners.ics">📅 Add ${events.length} dinner(s) to Calendar</a>`;
+  try{ const a=document.createElement('a'); a.href=url; a.download='family-dinners.ics'; document.body.appendChild(a); a.click(); a.remove(); }catch(e){}
+}
 function cap(s){ return s[0].toUpperCase()+s.slice(1); }
 function setTab(t){ activeTab=t;
   ['plan','library','cooked','ratings'].forEach(x=>{ const el=$('tab'+cap(x)); if(el) el.style.display=(x===t)?'':'none'; });
@@ -562,6 +786,8 @@ document.addEventListener('click', e=>{
   if(t.dataset.tab) setTab(t.dataset.tab);
   if(t.dataset.rsort){ ratingsSort=t.dataset.rsort; renderRatings(); }
   if(t.dataset.who) setWho(t.dataset.who);
+  if(t.dataset.addnote) addCookNote(t.dataset.addnote);
+  if(t.dataset.editrecipe) openRecipeEditor(t.dataset.editrecipe);
   if(t.dataset.rdel!==undefined && t.dataset.rdel!==''){ raterDraft.splice(+t.dataset.rdel,1); renderRatersEdit(); }
   if(t.id==='btnInstacart') sendToInstacart();
   if(t.id==='btnCopy') copyList();
@@ -575,16 +801,23 @@ document.addEventListener('input', e=>{
   if(t.dataset.rdraft!==undefined) raterDraft[+t.dataset.rdraft]=t.value;
   if(t.dataset.item!==undefined){ shoppingState[+t.dataset.item].checked=t.checked; }
 });
-document.addEventListener('change', e=>{ if(e.target.dataset.item!==undefined) renderShopping(); });
+document.addEventListener('change', e=>{ const t=e.target;
+  if(t.dataset.item!==undefined) renderShopping();
+  if(t.dataset.assign!==undefined) writeAssign(t.dataset.assign, t.value);
+});
 $('btnPropose').onclick=proposePlan;
 $('btnApprove').onclick=approvePlan;
 $('btnSettings').onclick=openSettings;
 $('btnWho').onclick=openWho;
-$('btnAddMeal').onclick=()=>$('addMealModal').classList.add('show');
+$('btnAddMeal').onclick=openAddMeal;
+$('btnAiIngredients').onclick=aiIngredientsFromSteps;
+$('btnAiRecipe').onclick=aiRecipeFromIngredients;
 $('btnSaveMeal').onclick=saveMeal;
 $('btnAddRater').onclick=()=>{ raterDraft.push("New person"); renderRatersEdit(); };
 $('btnSaveSettings').onclick=saveSettings;
 $('btnResetRatings').onclick=resetRatings;
+$('btnSaveRecipe').onclick=saveRecipeFromModal;
+$('btnAiRevise').onclick=aiReviseRecipe;
 $('btnSignout').onclick=()=>{ if(auth) signOut(auth); };
 [...document.querySelectorAll('.modal-bg')].forEach(bg=>bg.addEventListener('click',e=>{ if(e.target===bg) bg.classList.remove('show'); }));
 
@@ -605,13 +838,22 @@ async function ensureSeeded(){
   const snap=await getDocs(collection(db,'meals'));
   if(snap.empty){
     const b=writeBatch(db);
-    SEED_MEALS.forEach(m=> b.set(doc(collection(db,'meals')), {...m, ratings:{}}));
+    SEED_MEALS.forEach(m=> b.set(doc(collection(db,'meals')), {...m, recipe:RECIPES[m.name]||'', ratings:{}}));
     b.set(doc(db,'app','config'), config, {merge:true});
     await b.commit();
   }
 }
+let recipesBackfilled=false;
+async function backfillRecipes(){
+  if(recipesBackfilled) return; recipesBackfilled=true;
+  const todo=meals.filter(m=>(!m.recipe || !m.recipe.trim()) && RECIPES[m.name]);
+  if(!todo.length) return;
+  const b=writeBatch(db);
+  todo.forEach(m=> b.update(doc(db,'meals',m.id), { recipe: RECIPES[m.name] }));
+  try{ await b.commit(); }catch(e){}
+}
 function startListeners(){
-  onSnapshot(collection(db,'meals'), s=>{ meals=s.docs.map(d=>({id:d.id, ...d.data(), ratings:d.data().ratings||{}, prefs:d.data().prefs||{}})); setSync(true); renderAll(); }, ()=>setSync(false));
+  onSnapshot(collection(db,'meals'), s=>{ meals=s.docs.map(d=>({id:d.id, ...d.data(), ratings:d.data().ratings||{}, prefs:d.data().prefs||{}})); setSync(true); renderAll(); backfillRecipes(); }, ()=>setSync(false));
   onSnapshot(doc(db,'app','config'), s=>{
     if(s.exists()){
       config={...config, ...s.data()};
@@ -625,11 +867,12 @@ function startListeners(){
       writeConfig({ raters:FAMILY_RATERS.slice(), batch:config.batch });
     }
   });
-  onSnapshot(doc(db,'app','state'), s=>{ plan=(s.exists()&&s.data().plan)||[]; renderPlan(); });
+  onSnapshot(doc(db,'app','state'), s=>{ plan=(s.exists()&&s.data().plan)||[]; assign=(s.exists()&&s.data().assign)||{}; renderPlan(); });
   onSnapshot(collection(db,'history'), s=>{ history=s.docs.map(d=>d.data()).sort((a,b)=>(a.date||'').localeCompare(b.date||'')); });
 }
 
 /* ---------------- Boot ---------------- */
+if('serviceWorker' in navigator){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
 if(NOT_CONFIGURED){
   $('authOverlay').style.display='none'; $('appWrap').style.display='';
   $('appWrap').insertAdjacentHTML('afterbegin','<div class="config-warn"><strong>Not configured yet.</strong> Open this file and fill in <code>firebaseConfig</code> and <code>FAMILY_EMAIL</code> at the top of the script (see SETUP.md), then redeploy.</div>');
