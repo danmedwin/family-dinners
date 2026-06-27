@@ -100,6 +100,10 @@ details.prefs[open]>summary{ margin-bottom:4px;}
 .fchip{ font-size:.78rem; font-weight:600; padding:5px 11px; border-radius:999px; border:1px solid #d6ddd7; background:#fff; color:#3a5a47; cursor:pointer;}
 .fchip.on{ background:#2f7d4f; color:#fff; border-color:#2f7d4f;}
 .fchip.clear{ color:#a23b2b; border-color:#eccfc8;}
+.lib-row1{ display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+.lib-search{ flex:1; min-width:130px; font-size:.85rem; padding:6px 8px; border:1px solid #ccd4cd; border-radius:8px; background:#fff; color:#28352e;}
+.fchips-wrap{ display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+.lib-flabel{ font-size:.85rem; color:#4c5a51;}
 </style>
 </head>
 <body>
@@ -524,6 +528,7 @@ async function resetRatings(){
 let activeTab='plan', ratingsSort='meal', openLib=new Set(), favOpen=false;
 let librarySort = localStorage.getItem('fdp_libsort') || 'alpha';
 let activeFilters = new Set(JSON.parse(localStorage.getItem('fdp_libfilters')||'[]'));
+let librarySearch = '';
 const LIB_FILTERS=[{k:'veg',label:'Vegetarian'},{k:'poultry',label:'Poultry'},{k:'meat',label:'Beef'},{k:'fish',label:'Fish'},{k:'healthy',label:'Healthy'},{k:'nondairy',label:'Non-dairy'},{k:'dairy',label:'Light dairy'}];
 let myName = localStorage.getItem('fdp_me') || '';
 let whoPrompted = false;
@@ -583,29 +588,48 @@ function sortMeals(arr){
   if(librarySort==='oldest') return arr.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)||a.name.localeCompare(b.name));
   return arr.sort((a,b)=>a.name.localeCompare(b.name));
 }
+function libFiltered(){
+  const q=librarySearch.trim().toLowerCase();
+  return sortMeals(meals.filter(m=> mealMatchesFilters(m) && (!q
+    || m.name.toLowerCase().includes(q)
+    || (m.desc||'').toLowerCase().includes(q)
+    || (m.ing||[]).some(i=>String(i).toLowerCase().includes(q)))));
+}
+function libCardHtml(m){
+  return `<div class="card">
+    <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
+    <button class="btn ghost small" data-remove="${m.id}" title="Remove">✕</button></div>
+    ${tagsHtml(m)}${recipeHtml(m)}
+    <div class="rate-row">${summaryLine(m)} ${madeBtn(m)}</div>
+    <details class="prefs" data-libid="${m.id}" ${openLib.has(m.id)?'open':''}><summary>Set 👍 / 👎 per person</summary>
+      ${orderedRaters().map(r=>`<div class="rate-row"><span class="rate-name">${raterLabel(r)}</span>${thumbsInput(m,r)}</div>`).join('')}
+    </details></div>`;
+}
+function renderLibList(){
+  const el=$('libList'); if(!el) return;
+  const list=libFiltered();
+  const body=list.length ? list.map(libCardHtml).join('') : '<div class="empty-hint">No meals match.</div>';
+  el.innerHTML=`<div class="muted" style="font-size:.82rem;margin:2px 0 10px;">${list.length} of ${meals.length} dinners</div>`+body;
+}
 function renderLibrary(){
   const area=$('libraryArea');
   const controls=`<div class="lib-controls">
-    <label class="lib-sortwrap">Sort:
-      <select class="day-select" data-libsort>
+    <div class="lib-row1">
+      <label class="lib-sortwrap">Sort: <select class="day-select" data-libsort>
         <option value="alpha" ${librarySort==='alpha'?'selected':''}>Alphabetical</option>
         <option value="newest" ${librarySort==='newest'?'selected':''}>Newest</option>
         <option value="oldest" ${librarySort==='oldest'?'selected':''}>Oldest</option>
       </select></label>
-    <div class="fchips">
-      ${LIB_FILTERS.map(f=>`<button class="fchip ${activeFilters.has(f.k)?'on':''}" data-filter="${f.k}">${f.label}</button>`).join('')}
-      ${activeFilters.size?`<button class="fchip clear" data-filter="__clear">Clear</button>`:''}
-    </div></div>`;
-  const list=sortMeals(meals.filter(mealMatchesFilters));
-  const body = list.length ? list.map(m=>`<div class="card">
-      <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
-      <button class="btn ghost small" data-remove="${m.id}" title="Remove">✕</button></div>
-      ${tagsHtml(m)}${recipeHtml(m)}
-      <div class="rate-row">${summaryLine(m)} ${madeBtn(m)}</div>
-      <details class="prefs" data-libid="${m.id}" ${openLib.has(m.id)?'open':''}><summary>Set 👍 / 👎 per person</summary>
-        ${orderedRaters().map(r=>`<div class="rate-row"><span class="rate-name">${raterLabel(r)}</span>${thumbsInput(m,r)}</div>`).join('')}
-      </details></div>`).join('') : '<div class="empty-hint">No meals match these filters.</div>';
-  area.innerHTML=controls+`<div class="muted" style="font-size:.82rem;margin:2px 0 10px;">${list.length} of ${meals.length} dinners</div>`+body;
+      <input type="text" class="lib-search" data-libsearch placeholder="Search meals…" value="${escapeHtml(librarySearch)}">
+    </div>
+    <div class="fchips-wrap"><span class="lib-flabel">Filter:</span>
+      <div class="fchips">
+        ${LIB_FILTERS.map(f=>`<button class="fchip ${activeFilters.has(f.k)?'on':''}" data-filter="${f.k}">${f.label}</button>`).join('')}
+        ${activeFilters.size?`<button class="fchip clear" data-filter="__clear">Clear</button>`:''}
+      </div></div>
+  </div>`;
+  area.innerHTML=controls+`<div id="libList"></div>`;
+  renderLibList();
 }
 function renderCooked(){
   const area=$('cookedArea');
@@ -841,6 +865,7 @@ document.addEventListener('input', e=>{
   const t=e.target;
   if(t.dataset.rdraft!==undefined) raterDraft[+t.dataset.rdraft]=t.value;
   if(t.dataset.item!==undefined){ shoppingState[+t.dataset.item].checked=t.checked; }
+  if(t.dataset.libsearch!==undefined){ librarySearch=t.value; renderLibList(); }
 });
 document.addEventListener('change', e=>{ const t=e.target;
   if(t.dataset.item!==undefined) renderShopping();
