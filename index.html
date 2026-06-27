@@ -106,12 +106,12 @@ details.prefs[open]>summary{ margin-bottom:4px;}
 .lib-flabel{ font-size:.85rem; color:#4c5a51;}
 .modal-x{ position:absolute; top:10px; right:12px; border:none; background:transparent; font-size:1.15rem; color:#6a786f; cursor:pointer; line-height:1; padding:4px 6px;}
 .modal-x:hover{ color:#28352e;}
-.fav-dd{ position:relative;}
+.fav-dd{ position:static;}
 .fav-dd>summary{ list-style:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; background:#e7ece8; color:#28352e; border-radius:10px; padding:10px 16px; font-size:.95rem; font-weight:600;}
 .fav-dd>summary::-webkit-details-marker{ display:none;}
 .fav-dd>summary::after{ content:"▾"; font-size:.72rem;}
 .fav-dd[open]>summary::after{ content:"▴";}
-.fav-dd .card{ position:absolute; top:100%; left:0; margin-top:6px; min-width:260px; z-index:20; box-shadow:0 6px 20px rgba(0,0,0,.14);}
+.fav-dd .card{ position:absolute; top:100%; left:0; right:0; margin-top:6px; z-index:20; box-shadow:0 6px 20px rgba(0,0,0,.14);}
 </style>
 </head>
 <body>
@@ -156,7 +156,7 @@ details.prefs[open]>summary{ margin-bottom:4px;}
 
   <div id="tabLibrary" style="display:none;">
     <div class="banner">Browse all meals. Set 👍 / 👎 per person to say what you'd like to try <em>before</em> cooking — this shapes what gets proposed.</div>
-    <div class="row" style="margin-bottom:12px;align-items:center;">
+    <div class="row" style="margin-bottom:12px;align-items:center;position:relative;">
       <button class="btn" id="btnAddDinners">✨ Add dinners</button>
       <div id="favArea"></div>
     </div>
