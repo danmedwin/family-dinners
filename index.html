@@ -659,7 +659,8 @@ function recipeHtml(m){
   const hist=m.recipeHistory||[];
   if(!m.recipe && !hist.length) return '';
   const badge=hist.length?`<span class="upd-badge">✏️ updated</span>`:'';
-  let h=`<details class="ingredients"><summary>Recipe${badge}</summary><div style="white-space:pre-wrap;margin-top:6px;">${escapeHtml(m.recipe||'')}</div>`;
+  let h=`<details class="ingredients"><summary>Recipe${badge}</summary><div style="white-space:pre-wrap;margin-top:6px;">${escapeHtml(m.recipe||'')}</div>`+
+    `<button class="btn ghost small" data-editrecipe="${m.id}" style="margin-top:8px;">✏️ Edit recipe</button>`;
   if(hist.length){
     h+=`<details class="prefs" style="margin-top:8px;"><summary>Earlier versions (${hist.length})</summary>`+
       hist.map((v,i)=>`<div class="card" style="margin-top:6px;"><div class="muted" style="font-size:.74rem;">${i===hist.length-1?'Original':'Earlier'}${v.date?' · '+escapeHtml(String(v.date).slice(0,10)):''}${v.by?' · '+escapeHtml(v.by):''}</div><div style="white-space:pre-wrap;">${escapeHtml(v.text||'')}</div></div>`).join('')+
