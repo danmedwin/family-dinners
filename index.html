@@ -180,6 +180,7 @@ details.prefs[open]>summary{ margin-bottom:4px;}
       <button class="btn" id="btnSaveSettings">Save</button>
     </div>
     <hr class="soft" style="margin:20px 0 14px;">
+    <button class="btn ghost small" id="btnDedupe">🧹 Remove duplicate meals</button>
     <button class="btn ghost small" style="color:#a23b2b;" id="btnResetRatings">Reset all ratings &amp; history</button>
   </div>
 </div>
@@ -424,13 +425,17 @@ function setSync(ok){ $('syncBadge').innerHTML = ok ? '<span class="dot ok"></sp
 function avgRating(m){ const v=Object.values(m.ratings||{}); return v.length? v.reduce((a,b)=>a+b,0)/v.length : null; }
 function plansSinceUsed(id){ for(let i=history.length-1,n=1;i>=0;i--,n++){ if((history[i].mealIds||[]).includes(id)) return n; } return 99; }
 function prefScore(m){ let s=0; Object.values(m.prefs||{}).forEach(v=>{ if(v==='up')s++; else if(v==='down')s--; }); return s; }
+function daysSincePlanned(m){
+  const ds=[m.lastPlanned, m.lastMade].filter(Boolean).map(d=>Date.parse(d)).filter(n=>!isNaN(n));
+  if(!ds.length) return 999;
+  return (Date.now()-Math.max(...ds))/86400000;
+}
 function weightFor(m){
   const a=avgRating(m); const r=(a===null)?3.5:a;
   let w=Math.pow(r/3,2);
-  const since=plansSinceUsed(m.id);
-  const recency=Math.min(1,since/3);
+  const recency=Math.min(1, daysSincePlanned(m)/14);   // suppressed ~2 weeks after planned/made
   w*=(0.15+0.85*recency);
-  const ps=prefScore(m);                       // thumbs: up boosts, down suppresses
+  const ps=prefScore(m);                                // thumbs: up boosts, down suppresses
   w*=Math.max(0.12, Math.min(2.5, 1+0.3*ps));
   return Math.max(0.02,w);
 }
@@ -448,6 +453,23 @@ function weightedSample(pool,n){
 /* ---------------- Firestore writes ---------------- */
 async function writePlan(ids){ await setDoc(doc(db,'app','state'), { plan: ids }, { merge:true }); }
 async function writeAssign(mealId, day){ assign={...assign,[mealId]:day}; await setDoc(doc(db,'app','state'), { assign:{[mealId]:day} }, { merge:true }); }
+async function addToPlan(id){ if(plan.includes(id)){ toast('Already in the plan.'); return; } await writePlan([...plan, id]); toast('Added to plan.'); }
+async function removeFromPlan(id){ await writePlan(plan.filter(x=>x!==id)); }
+async function dedupeMeals(){
+  const byName=new Map();
+  meals.forEach(m=>{ const k=(m.name||'').trim().toLowerCase(); if(!byName.has(k)) byName.set(k,[]); byName.get(k).push(m); });
+  const dups=[...byName.values()].filter(g=>g.length>1);
+  const count=dups.reduce((n,g)=>n+g.length-1,0);
+  if(!count){ toast('No duplicate meals found.'); return; }
+  if(!confirm('Found '+count+' duplicate meal(s). Keep the best copy of each and remove the rest?')) return;
+  const b=writeBatch(db);
+  dups.forEach(g=>{
+    g.sort((a,c)=> (Object.keys(c.ratings||{}).length-Object.keys(a.ratings||{}).length)
+      || ((c.recipe?1:0)-(a.recipe?1:0)) || ((a.createdAt||0)-(c.createdAt||0)) );
+    g.slice(1).forEach(m=> b.delete(doc(db,'meals',m.id)));
+  });
+  try{ await b.commit(); toast('Removed '+count+' duplicate(s).'); }catch(e){ toast('Cleanup failed — try again.'); }
+}
 async function writeConfig(c){ await setDoc(doc(db,'app','config'), c, { merge:true }); }
 async function proposePlan(){
   if(meals.length < config.batch){ toast("Add more meals to the library first."); return; }
@@ -607,7 +629,12 @@ async function addIdea(i){
 }
 async function approvePlan(){
   if(!plan.length) return;
-  await addDoc(collection(db,'history'), { date:new Date().toISOString(), mealIds: plan.slice() });
+  const assignedIds=plan.filter(id=>assign[id]);
+  if(!assignedIds.length){ buildCalendar(); toast('Assign a day to at least one dinner first.'); window.scrollTo({ top:$('calendarArea').offsetTop-20, behavior:'smooth' }); return; }
+  await addDoc(collection(db,'history'), { date:new Date().toISOString(), mealIds: assignedIds.slice() });
+  const b=writeBatch(db);
+  assignedIds.forEach(id=>{ b.update(doc(db,'meals',id), { lastPlanned: assign[id] }); });
+  try{ await b.commit(); }catch(e){}
   buildShoppingList();
   buildCalendar();
   toast("Plan approved — calendar + shopping list ready below.");
@@ -643,6 +670,7 @@ let activeFilters = new Set(JSON.parse(localStorage.getItem('fdp_libfilters')||'
 let librarySearch = '';
 let genCriteria = { types:new Set(), prep:'any', healthy:false, nondairy:false, notes:'', have:'' };
 let genIdeas = []; let genAddedNames = new Set();
+let cookedSort = 'date-new';
 const LIB_FILTERS=[{k:'veg',label:'Vegetarian'},{k:'poultry',label:'Poultry'},{k:'meat',label:'Beef'},{k:'fish',label:'Fish'},{k:'healthy',label:'Healthy'},{k:'nondairy',label:'Non-dairy'},{k:'dairy',label:'Light dairy'},{k:'u15',label:'⏱ <15'},{k:'15-30',label:'⏱ 15–30'},{k:'30-45',label:'⏱ 30–45'},{k:'45+',label:'⏱ 45+'}];
 let myName = localStorage.getItem('fdp_me') || '';
 let whoPrompted = false;
@@ -683,13 +711,16 @@ function renderPlan(){
   const area=$('planArea');
   const pm=plan.map(id=>meals.find(m=>m.id===id)).filter(Boolean);
   if(!pm.length){
-    area.innerHTML=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">This plan <button class="btn ghost small" id="btnPropose">🔄 Suggest</button></div><div class="empty-hint">No plan yet — tap 🔄 Suggest to pick dinners.</div>`;
+    area.innerHTML=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">Suggested Plan <button class="btn ghost small" id="btnPropose">🔄 Suggest</button></div><div class="empty-hint">No plan yet — tap 🔄 Suggest, or add meals from the Library.</div>`;
     return;
   }
-  area.innerHTML=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">This plan <button class="btn ghost small" id="btnPropose" title="Swap all">🔄 Swap all</button></div>`
+  area.innerHTML=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">Suggested Plan <button class="btn ghost small" id="btnPropose" title="Swap all">🔄 Swap all</button></div>`
     +pm.map(m=>`<div class="card">
     <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
-    <button class="btn ghost small" data-reroll="${m.id}">🔄 Swap</button></div>
+    <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+      <button class="btn ghost small" data-reroll="${m.id}">🔄 Swap</button>
+      <button class="btn ghost small" data-removeplan="${m.id}" style="color:#a23b2b;">✕ Remove</button>
+    </div></div>
     ${tagsHtml(m)}${ingredientsHtml(m)}${recipeHtml(m)}
     <div class="rate-row" style="margin-top:10px;gap:10px;flex-wrap:wrap;">
       <label style="font-size:.86rem;color:#4c5a51;">📅 Day: <select class="day-select" data-assign="${m.id}">${dayOptions(assign[m.id]||'')}</select></label>
@@ -725,7 +756,7 @@ function libCardHtml(m){
     <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
     <button class="btn ghost small" data-remove="${m.id}" title="Remove">✕</button></div>
     ${tagsHtml(m)}${recipeHtml(m)}
-    <div class="rate-row">${summaryLine(m)} ${madeBtn(m)}</div>
+    <div class="rate-row" style="gap:8px;flex-wrap:wrap;">${summaryLine(m)} <button class="btn ghost small" data-addplan="${m.id}">＋ Plan</button> ${madeBtn(m)}</div>
     <details class="prefs" data-libid="${m.id}" ${openLib.has(m.id)?'open':''}><summary>Set 👍 / 👎 per person</summary>
       ${orderedRaters().map(r=>`<div class="rate-row"><span class="rate-name">${raterLabel(r)}</span>${thumbsInput(m,r)}</div>`).join('')}
     </details></div>`;
@@ -756,13 +787,29 @@ function renderLibrary(){
   area.innerHTML=controls+`<div id="libList"></div>`;
   renderLibList();
 }
+function sortCooked(arr){
+  if(cookedSort==='date-old') return arr.sort((a,b)=>(a.lastMade||'').localeCompare(b.lastMade||''));
+  if(cookedSort==='rating-high') return arr.sort((a,b)=>((avgRating(b)??-1)-(avgRating(a)??-1)));
+  if(cookedSort==='rating-low') return arr.sort((a,b)=>((avgRating(a)??99)-(avgRating(b)??99)));
+  return arr.sort((a,b)=>(b.lastMade||'').localeCompare(a.lastMade||'')); // date-new
+}
 function renderCooked(){
   const area=$('cookedArea');
-  const made=meals.filter(m=>m.made).sort((a,b)=>(b.lastMade||'').localeCompare(a.lastMade||''));
+  const made=sortCooked(meals.filter(m=>m.made));
+  const controls=`<div class="lib-row1" style="margin-bottom:10px;"><label class="lib-sortwrap">Sort:
+    <select class="day-select" data-cookedsort>
+      <option value="date-new" ${cookedSort==='date-new'?'selected':''}>Made: newest</option>
+      <option value="date-old" ${cookedSort==='date-old'?'selected':''}>Made: oldest</option>
+      <option value="rating-high" ${cookedSort==='rating-high'?'selected':''}>Rating: high</option>
+      <option value="rating-low" ${cookedSort==='rating-low'?'selected':''}>Rating: low</option>
+    </select></label></div>`;
   if(!made.length){ area.innerHTML='<div class="empty-hint">No meals marked as made yet. Use “Mark as made” on the Plan or Library tab, then rate them here.</div>'; return; }
-  area.innerHTML=made.map(m=>`<div class="card">
-    <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
-    <button class="btn ghost small" data-made="${m.id}">↩︎ Unmark</button></div>
+  area.innerHTML=controls+made.map(m=>`<div class="card">
+    <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p>${m.lastMade?`<p class="muted" style="font-size:.78rem;margin:2px 0 0;">Made ${escapeHtml(new Date(m.lastMade).toLocaleDateString())}</p>`:''}</div>
+    <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+      <button class="btn ghost small" data-addplan="${m.id}">＋ Plan</button>
+      <button class="btn ghost small" data-made="${m.id}">↩︎ Unmark</button>
+    </div></div>
     ${tagsHtml(m)}${recipeHtml(m)}
     <div class="ratings"><div class="rate-row"><strong style="font-size:.85rem;">Rate after eating (1–5★)</strong>${summaryLine(m)}</div>
     ${orderedRaters().map(r=>`<div class="rate-row"><span class="rate-name">${raterLabel(r)}</span>${starsInput(m,r)}</div>`).join('')}</div>${cookNotesHtml(m)}</div>`).join('');
@@ -794,7 +841,7 @@ function renderFavorites(){
   const rated=meals.filter(m=>avgRating(m)!==null).sort((a,b)=>avgRating(b)-avgRating(a)).slice(0,5);
   if(!rated.length){ area.innerHTML=''; return; }
   area.innerHTML=`<details class="prefs" data-fav="1" ${favOpen?'open':''}><summary>⭐ Family favorites (top rated)</summary>
-    <div class="card" style="margin-top:8px;">${rated.map((m,i)=>`<div class="lib-row"><div class="nm">${i+1}. ${escapeHtml(m.name)}</div><span class="avg">${avgRating(m).toFixed(1)}★ <span class="muted">(${Object.keys(m.ratings||{}).length})</span></span></div>`).join('')}</div></details>`;
+    <div class="card" style="margin-top:8px;">${rated.map((m,i)=>`<div class="lib-row"><div class="nm">${i+1}. ${escapeHtml(m.name)}</div><div class="row" style="gap:8px;"><span class="avg">${avgRating(m).toFixed(1)}★ <span class="muted">(${Object.keys(m.ratings||{}).length})</span></span><button class="btn ghost small" data-addplan="${m.id}">＋ Plan</button></div></div>`).join('')}</div></details>`;
 }
 /* ---- device identity ("I am ___") ---- */
 function updateWhoChip(){ const b=$('btnWho'); if(b) b.textContent='You: '+(meValid()?myName:'set'); }
@@ -890,7 +937,7 @@ function renderAll(){ updateWhoChip(); renderFavorites(); renderPlan(); renderLi
 /* ---------------- Shopping list + Instacart ---------------- */
 function consolidatedIngredients(){
   const map=new Map();
-  plan.forEach(id=>{ const m=meals.find(x=>x.id===id); if(!m) return;
+  plan.filter(id=>assign[id]).forEach(id=>{ const m=meals.find(x=>x.id===id); if(!m) return;
     m.ing.forEach(raw=>{ const k=raw.trim().toLowerCase();
       if(!map.has(k)) map.set(k,{name:raw.trim(),count:0,meals:[]});
       const e=map.get(k); e.count++; e.meals.push(m.name); }); });
@@ -988,6 +1035,8 @@ document.addEventListener('click', e=>{
   if(t.dataset.genprep){ genCriteria.prep=t.dataset.genprep; document.querySelectorAll('#genPrep .fchip').forEach(c=>c.classList.toggle('on', c===t)); }
   if(t.dataset.gentoggle){ const k=t.dataset.gentoggle; genCriteria[k]=!genCriteria[k]; t.classList.toggle('on'); }
   if(t.dataset.addidea!==undefined) addIdea(+t.dataset.addidea);
+  if(t.dataset.addplan) addToPlan(t.dataset.addplan);
+  if(t.dataset.removeplan) removeFromPlan(t.dataset.removeplan);
 });
 document.addEventListener('toggle', e=>{ const d=e.target; if(!d.dataset) return;
   if(d.dataset.libid){ if(d.open) openLib.add(d.dataset.libid); else openLib.delete(d.dataset.libid); }
@@ -1005,6 +1054,7 @@ document.addEventListener('change', e=>{ const t=e.target;
   if(t.dataset.item!==undefined) renderShopping();
   if(t.dataset.assign!==undefined) writeAssign(t.dataset.assign, t.value);
   if(t.dataset.libsort!==undefined){ librarySort=t.value; localStorage.setItem('fdp_libsort',librarySort); renderLibrary(); }
+  if(t.dataset.cookedsort!==undefined){ cookedSort=t.value; renderCooked(); }
 });
 $('btnSettings').onclick=openSettings;
 $('btnWho').onclick=openWho;
@@ -1014,6 +1064,7 @@ $('btnSaveMeal').onclick=saveMeal;
 $('btnAddRater').onclick=()=>{ raterDraft.push("New person"); renderRatersEdit(); };
 $('btnSaveSettings').onclick=saveSettings;
 $('btnResetRatings').onclick=resetRatings;
+$('btnDedupe').onclick=dedupeMeals;
 $('btnSaveRecipe').onclick=saveRecipeFromModal;
 $('btnAiRevise').onclick=aiReviseRecipe;
 $('btnSignout').onclick=()=>{ if(auth) signOut(auth); };
@@ -1033,13 +1084,14 @@ async function doLogin(){
   }
 }
 async function ensureSeeded(){
+  const cfg=await getDoc(doc(db,'app','config'));
+  if(cfg.exists() && cfg.data().seeded) return;            // already seeded once — never re-seed
   const snap=await getDocs(collection(db,'meals'));
-  if(snap.empty){
-    const b=writeBatch(db);
-    SEED_MEALS.forEach((m,i)=> b.set(doc(collection(db,'meals')), {...m, recipe:RECIPES[m.name]||'', ratings:{}, createdAt:1000+i, prep:PREP_SEED[m.name]||''}));
-    b.set(doc(db,'app','config'), config, {merge:true});
-    await b.commit();
-  }
+  if(!snap.empty){ await setDoc(doc(db,'app','config'), { seeded:true }, { merge:true }); return; }
+  const b=writeBatch(db);
+  SEED_MEALS.forEach((m,i)=> b.set(doc(collection(db,'meals')), {...m, recipe:RECIPES[m.name]||'', ratings:{}, createdAt:1000+i, prep:PREP_SEED[m.name]||''}));
+  b.set(doc(db,'app','config'), {...config, seeded:true}, {merge:true});
+  await b.commit();
 }
 let recipesBackfilled=false;
 async function backfillRecipes(){
