@@ -149,6 +149,7 @@ details.prefs[open]>summary{ margin-bottom:4px;}
 
   <div id="tabLibrary" style="display:none;">
     <div class="banner">Browse all meals. Set 👍 / 👎 per person to say what you'd like to try <em>before</em> cooking — this shapes what gets proposed.</div>
+    <div class="row" style="margin-bottom:12px;"><button class="btn" id="btnAddDinners">✨ Add dinners</button></div>
     <div id="favArea"></div>
     <div id="libraryArea"></div>
   </div>
@@ -202,7 +203,7 @@ details.prefs[open]>summary{ margin-bottom:4px;}
     </div>
     <div class="field"><label>Recipe / instructions (optional — shows in the calendar event notes)</label>
       <textarea id="amRecipe" rows="6" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;" placeholder="1. Press and cube the tofu.&#10;2. Stir-fry veggies 5 min.&#10;3. Add sauce, simmer, serve over rice."></textarea>
-      <div id="amRecipeAiRow" style="display:none;margin-top:6px;"><button class="btn secondary small" id="btnAiRecipe">✨ Draft recipe from ingredients</button></div>
+      <div id="amRecipeAiRow" style="display:none;margin-top:6px;"><button class="btn secondary small" id="btnAiRecipe">✨ Draft recipe from ingredients</button> <span class="muted" style="font-size:.78rem;">(uses what makes a good dish — not necessarily all)</span></div>
     </div>
     <div class="row" style="justify-content:flex-end;margin-top:6px;">
       <button class="btn secondary" data-close="addMealModal">Cancel</button>
@@ -217,6 +218,43 @@ details.prefs[open]>summary{ margin-bottom:4px;}
     <h2>Who's using this device?</h2>
     <p class="muted" style="font-size:.88rem;margin:0 0 14px;">We'll remember this on this device so your ratings are attributed to you. You can still rate for others (like the kids).</p>
     <div id="whoList"></div>
+  </div>
+</div>
+
+<!-- Add Dinners (AI generator) modal -->
+<div class="modal-bg" id="addDinnersModal">
+  <div class="modal" style="max-width:580px;">
+    <h2>✨ Add dinners</h2>
+    <p class="muted" style="font-size:.85rem;margin:0 0 12px;">Pick any criteria (all optional), generate ideas, then tap ＋ to add ones you like to your Library.</p>
+    <div class="field"><label>Protein</label>
+      <div class="fchips" id="genTypes">
+        <button class="fchip" data-gentype="veg">Vegetarian</button>
+        <button class="fchip" data-gentype="poultry">Poultry</button>
+        <button class="fchip" data-gentype="meat">Beef</button>
+        <button class="fchip" data-gentype="fish">Fish</button>
+      </div></div>
+    <div class="field"><label>Prep time</label>
+      <div class="fchips" id="genPrep">
+        <button class="fchip on" data-genprep="any">Any</button>
+        <button class="fchip" data-genprep="u15">Under 15 min</button>
+        <button class="fchip" data-genprep="15-30">15–30 min</button>
+        <button class="fchip" data-genprep="30-45">30–45 min</button>
+      </div></div>
+    <div class="field"><label>Preferences</label>
+      <div class="fchips" id="genToggles">
+        <button class="fchip" data-gentoggle="healthy">Healthy</button>
+        <button class="fchip" data-gentoggle="nondairy">Non-dairy</button>
+      </div></div>
+    <div class="field"><label>Cuisine / notes (optional)</label>
+      <input type="text" id="genNotes" placeholder="e.g. Mexican, sheet-pan, pantry staples"></div>
+    <div class="field"><label>Ingredients I have (optional — “what can I make?”)</label>
+      <textarea id="genHave" rows="3" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;" placeholder="e.g. chicken thighs, spinach, lemon, rice"></textarea></div>
+    <div class="row" style="gap:8px;align-items:center;">
+      <button class="btn" id="btnGenIdeas">Generate ideas</button>
+      <button class="btn secondary" id="btnGenRefresh" style="display:none;">🔄 Refresh</button>
+      <button class="btn secondary" data-close="addDinnersModal" style="margin-left:auto;">Close</button>
+    </div>
+    <div id="genResults" style="margin-top:14px;"></div>
   </div>
 </div>
 
@@ -493,6 +531,57 @@ function openAddMeal(){
   const a=$('amIngAiRow'), b=$('amRecipeAiRow'); if(a) a.style.display=show; if(b) b.style.display=show;
   $('addMealModal').classList.add('show');
 }
+/* ---- Add Dinners generator ---- */
+function openAddDinners(){
+  document.querySelectorAll('#genTypes .fchip').forEach(c=>c.classList.toggle('on', genCriteria.types.has(c.dataset.gentype)));
+  document.querySelectorAll('#genPrep .fchip').forEach(c=>c.classList.toggle('on', c.dataset.genprep===genCriteria.prep));
+  document.querySelectorAll('#genToggles .fchip').forEach(c=>c.classList.toggle('on', !!genCriteria[c.dataset.gentoggle]));
+  $('genNotes').value=genCriteria.notes||''; $('genHave').value=genCriteria.have||'';
+  $('addDinnersModal').classList.add('show');
+}
+function ideaTags(idea){
+  const t=[]; const lbl={veg:'Vegetarian',poultry:'Poultry',meat:'Beef',fish:'Fish'}[idea.type]||idea.type||'';
+  if(lbl) t.push(`<span class="tag">${escapeHtml(lbl)}</span>`);
+  if(idea.prep) t.push(`<span class="tag">${escapeHtml(String(idea.prep))}</span>`);
+  if(idea.healthy) t.push(`<span class="tag healthy">Healthy</span>`);
+  t.push(idea.dairy?`<span class="tag dairy">Light dairy</span>`:`<span class="tag">Non-dairy</span>`);
+  return `<div class="tags">${t.join('')}</div>`;
+}
+function renderGenResults(){
+  const res=$('genResults'); if(!res) return;
+  if(!genIdeas.length){ res.innerHTML=''; return; }
+  res.innerHTML=genIdeas.map((idea,i)=>{
+    const added=genAddedNames.has(idea.name);
+    return `<div class="card">
+      <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(idea.name||'Dinner')}</p><p class="meal-desc">${escapeHtml(idea.desc||'')}</p></div>
+      <button class="btn ${added?'secondary':''} small" data-addidea="${i}" ${added?'disabled':''}>${added?'✓ Added':'＋ Add'}</button></div>
+      ${ideaTags(idea)}
+      <details class="ingredients"><summary>Ingredients${(idea.ing&&idea.ing.length)?' ('+idea.ing.length+')':''}</summary><ul>${(idea.ing||[]).map(x=>`<li>${escapeHtml(String(x))}</li>`).join('')}</ul></details>
+      ${idea.recipe?`<details class="ingredients"><summary>Recipe</summary><div style="white-space:pre-wrap;margin-top:6px;">${escapeHtml(idea.recipe)}</div></details>`:''}
+    </div>`;
+  }).join('');
+}
+async function generateIdeas(){
+  const res=$('genResults');
+  if(!RECIPE_AI_WORKER_URL){ res.innerHTML='<div class="banner warn">The AI generator needs your recipe Worker. Add its URL to RECIPE_AI_WORKER_URL (see RECIPE_AI_SETUP.md).</div>'; return; }
+  res.innerHTML='<div class="empty-hint">Thinking up dinners…</div>';
+  $('btnGenIdeas').disabled=true; const rb=$('btnGenRefresh'); rb.disabled=true;
+  try{
+    const r=await fetch(RECIPE_AI_WORKER_URL,{ method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ task:'ideas', count:6, criteria:{ types:[...genCriteria.types], prep:genCriteria.prep, healthy:genCriteria.healthy, nondairy:genCriteria.nondairy, notes:genCriteria.notes }, have:genCriteria.have }) });
+    if(!r.ok) throw new Error('ai '+r.status);
+    const d=await r.json(); genIdeas=Array.isArray(d.ideas)?d.ideas:[]; genAddedNames=new Set();
+    if(!genIdeas.length) throw new Error('empty');
+    renderGenResults(); rb.style.display='';
+  }catch(e){ res.innerHTML='<div class="banner warn">Couldn’t generate ideas right now. Try Refresh, or adjust the criteria.</div>'; }
+  $('btnGenIdeas').disabled=false; rb.disabled=false;
+}
+async function addIdea(i){
+  const idea=genIdeas[i]; if(!idea) return;
+  const type=['veg','poultry','meat','fish'].includes(idea.type)?idea.type:'veg';
+  await addDoc(collection(db,'meals'), { name:idea.name||'New dinner', desc:idea.desc||'', type, dairy:!!idea.dairy, healthy:idea.healthy!==false, ing:Array.isArray(idea.ing)?idea.ing.map(String):[], recipe:idea.recipe||'', ratings:{}, prefs:{}, createdAt:Date.now() });
+  genAddedNames.add(idea.name); renderGenResults(); toast('Added to Library.');
+}
 async function approvePlan(){
   if(!plan.length) return;
   await addDoc(collection(db,'history'), { date:new Date().toISOString(), mealIds: plan.slice() });
@@ -529,6 +618,8 @@ let activeTab='plan', ratingsSort='meal', openLib=new Set(), favOpen=false;
 let librarySort = localStorage.getItem('fdp_libsort') || 'alpha';
 let activeFilters = new Set(JSON.parse(localStorage.getItem('fdp_libfilters')||'[]'));
 let librarySearch = '';
+let genCriteria = { types:new Set(), prep:'any', healthy:false, nondairy:false, notes:'', have:'' };
+let genIdeas = []; let genAddedNames = new Set();
 const LIB_FILTERS=[{k:'veg',label:'Vegetarian'},{k:'poultry',label:'Poultry'},{k:'meat',label:'Beef'},{k:'fish',label:'Fish'},{k:'healthy',label:'Healthy'},{k:'nondairy',label:'Non-dairy'},{k:'dairy',label:'Light dairy'}];
 let myName = localStorage.getItem('fdp_me') || '';
 let whoPrompted = false;
@@ -856,6 +947,12 @@ document.addEventListener('click', e=>{
   if(t.id==='btnCopy') copyList();
   if(t.id==='btnPropose') proposePlan();
   if(t.id==='btnApprove') approvePlan();
+  if(t.id==='btnAddDinners') openAddDinners();
+  if(t.id==='btnGenIdeas' || t.id==='btnGenRefresh') generateIdeas();
+  if(t.dataset.gentype){ const k=t.dataset.gentype; genCriteria.types.has(k)?genCriteria.types.delete(k):genCriteria.types.add(k); t.classList.toggle('on'); }
+  if(t.dataset.genprep){ genCriteria.prep=t.dataset.genprep; document.querySelectorAll('#genPrep .fchip').forEach(c=>c.classList.toggle('on', c===t)); }
+  if(t.dataset.gentoggle){ const k=t.dataset.gentoggle; genCriteria[k]=!genCriteria[k]; t.classList.toggle('on'); }
+  if(t.dataset.addidea!==undefined) addIdea(+t.dataset.addidea);
 });
 document.addEventListener('toggle', e=>{ const d=e.target; if(!d.dataset) return;
   if(d.dataset.libid){ if(d.open) openLib.add(d.dataset.libid); else openLib.delete(d.dataset.libid); }
@@ -866,6 +963,8 @@ document.addEventListener('input', e=>{
   if(t.dataset.rdraft!==undefined) raterDraft[+t.dataset.rdraft]=t.value;
   if(t.dataset.item!==undefined){ shoppingState[+t.dataset.item].checked=t.checked; }
   if(t.dataset.libsearch!==undefined){ librarySearch=t.value; renderLibList(); }
+  if(t.id==='genNotes') genCriteria.notes=t.value;
+  if(t.id==='genHave') genCriteria.have=t.value;
 });
 document.addEventListener('change', e=>{ const t=e.target;
   if(t.dataset.item!==undefined) renderShopping();
