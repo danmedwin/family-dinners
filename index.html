@@ -91,6 +91,12 @@ details.prefs[open]>summary{ margin-bottom:4px;}
 .cooknote-input{ font-size:.9rem; padding:7px 9px; border:1px solid #ccd4cd; border-radius:8px;}
 .note-row{ font-size:.86rem; padding:5px 0; border-bottom:1px solid #f3f5f3;}
 .upd-badge{ font-size:.72rem; font-weight:600; background:#fef0d8; color:#8a5a12; border-radius:999px; padding:2px 8px; margin-left:6px;}
+.lib-controls{ display:flex; flex-direction:column; gap:10px; margin-bottom:10px;}
+.lib-sortwrap{ font-size:.85rem; color:#4c5a51; display:flex; align-items:center; gap:6px;}
+.fchips{ display:flex; flex-wrap:wrap; gap:6px;}
+.fchip{ font-size:.78rem; font-weight:600; padding:5px 11px; border-radius:999px; border:1px solid #d6ddd7; background:#fff; color:#3a5a47; cursor:pointer;}
+.fchip.on{ background:#2f7d4f; color:#fff; border-color:#2f7d4f;}
+.fchip.clear{ color:#a23b2b; border-color:#eccfc8;}
 </style>
 </head>
 <body>
@@ -304,6 +310,7 @@ const SEED_MEALS = [
   { name:"Herb-Roasted Turkey Breast & Veggies", type:"poultry", dairy:false, healthy:true, desc:"Roast turkey breast with carrots and potatoes.", ing:["turkey breast","carrots","baby potatoes","green beans","olive oil","mixed herbs"] }
 ];
 
+const SEED_INDEX = Object.fromEntries(SEED_MEALS.map((m,i)=>[m.name,i]));
 /* Recipes for the starter meals (keyed by exact name). Used for fresh installs and to
    backfill existing meals that have no recipe yet. */
 const RECIPES = {
@@ -495,7 +502,7 @@ async function saveMeal(){
   const name=$('amName').value.trim(); if(!name){ toast("Give the meal a name."); return; }
   const ing=$('amIng').value.split('\n').map(s=>s.trim()).filter(Boolean);
   if(!ing.length){ toast("Add at least one ingredient."); return; }
-  await addDoc(collection(db,'meals'), { name, desc:$('amDesc').value.trim(), type:$('amType').value, dairy:false, healthy:true, ing, recipe:$('amRecipe').value.trim(), ratings:{} });
+  await addDoc(collection(db,'meals'), { name, desc:$('amDesc').value.trim(), type:$('amType').value, dairy:false, healthy:true, ing, recipe:$('amRecipe').value.trim(), ratings:{}, createdAt:Date.now() });
   $('amName').value=''; $('amDesc').value=''; $('amIng').value=''; $('amRecipe').value='';
   closeModal('addMealModal'); toast("Meal added.");
 }
@@ -516,6 +523,9 @@ async function resetRatings(){
 
 /* ---------------- Rendering ---------------- */
 let activeTab='plan', ratingsSort='meal', openLib=new Set(), favOpen=false;
+let librarySort = localStorage.getItem('fdp_libsort') || 'alpha';
+let activeFilters = new Set(JSON.parse(localStorage.getItem('fdp_libfilters')||'[]'));
+const LIB_FILTERS=[{k:'veg',label:'Vegetarian'},{k:'poultry',label:'Poultry'},{k:'meat',label:'Beef'},{k:'fish',label:'Fish'},{k:'healthy',label:'Healthy'},{k:'nondairy',label:'Non-dairy'},{k:'dairy',label:'Light dairy'}];
 let myName = localStorage.getItem('fdp_me') || '';
 let whoPrompted = false;
 function meValid(){ return myName && config.raters.includes(myName); }
@@ -557,18 +567,42 @@ function renderPlan(){
     <div class="rate-row">${summaryLine(m)}</div></div>`).join('');
   $('btnApprove').style.display='';
 }
+function mealMatchesFilters(m){
+  const types=['veg','poultry','meat','fish'].filter(t=>activeFilters.has(t));
+  if(types.length && !types.includes(m.type)) return false;
+  const dairyOpts=[]; if(activeFilters.has('nondairy')) dairyOpts.push(false); if(activeFilters.has('dairy')) dairyOpts.push(true);
+  if(dairyOpts.length && !dairyOpts.includes(!!m.dairy)) return false;
+  if(activeFilters.has('healthy') && !m.healthy) return false;
+  return true;
+}
+function sortMeals(arr){
+  if(librarySort==='newest') return arr.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)||a.name.localeCompare(b.name));
+  if(librarySort==='oldest') return arr.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)||a.name.localeCompare(b.name));
+  return arr.sort((a,b)=>a.name.localeCompare(b.name));
+}
 function renderLibrary(){
   const area=$('libraryArea');
-  const sorted=meals.slice().sort((a,b)=>a.name.localeCompare(b.name));
-  area.innerHTML=`<div class="muted" style="font-size:.82rem;margin-bottom:8px;">${meals.length} dinners</div>`+
-    sorted.map(m=>`<div class="card">
+  const controls=`<div class="lib-controls">
+    <label class="lib-sortwrap">Sort:
+      <select class="day-select" data-libsort>
+        <option value="alpha" ${librarySort==='alpha'?'selected':''}>Alphabetical</option>
+        <option value="newest" ${librarySort==='newest'?'selected':''}>Newest</option>
+        <option value="oldest" ${librarySort==='oldest'?'selected':''}>Oldest</option>
+      </select></label>
+    <div class="fchips">
+      ${LIB_FILTERS.map(f=>`<button class="fchip ${activeFilters.has(f.k)?'on':''}" data-filter="${f.k}">${f.label}</button>`).join('')}
+      ${activeFilters.size?`<button class="fchip clear" data-filter="__clear">Clear</button>`:''}
+    </div></div>`;
+  const list=sortMeals(meals.filter(mealMatchesFilters));
+  const body = list.length ? list.map(m=>`<div class="card">
       <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
       <button class="btn ghost small" data-remove="${m.id}" title="Remove">✕</button></div>
       ${tagsHtml(m)}${recipeHtml(m)}
       <div class="rate-row">${summaryLine(m)} ${madeBtn(m)}</div>
       <details class="prefs" data-libid="${m.id}" ${openLib.has(m.id)?'open':''}><summary>Set 👍 / 👎 per person</summary>
         ${orderedRaters().map(r=>`<div class="rate-row"><span class="rate-name">${raterLabel(r)}</span>${thumbsInput(m,r)}</div>`).join('')}
-      </details></div>`).join('');
+      </details></div>`).join('') : '<div class="empty-hint">No meals match these filters.</div>';
+  area.innerHTML=controls+`<div class="muted" style="font-size:.82rem;margin:2px 0 10px;">${list.length} of ${meals.length} dinners</div>`+body;
 }
 function renderCooked(){
   const area=$('cookedArea');
@@ -788,6 +822,7 @@ document.addEventListener('click', e=>{
   if(t.dataset.who) setWho(t.dataset.who);
   if(t.dataset.addnote) addCookNote(t.dataset.addnote);
   if(t.dataset.editrecipe) openRecipeEditor(t.dataset.editrecipe);
+  if(t.dataset.filter){ const f=t.dataset.filter; if(f==='__clear') activeFilters.clear(); else { activeFilters.has(f)?activeFilters.delete(f):activeFilters.add(f); } localStorage.setItem('fdp_libfilters', JSON.stringify([...activeFilters])); renderLibrary(); }
   if(t.dataset.rdel!==undefined && t.dataset.rdel!==''){ raterDraft.splice(+t.dataset.rdel,1); renderRatersEdit(); }
   if(t.id==='btnInstacart') sendToInstacart();
   if(t.id==='btnCopy') copyList();
@@ -804,6 +839,7 @@ document.addEventListener('input', e=>{
 document.addEventListener('change', e=>{ const t=e.target;
   if(t.dataset.item!==undefined) renderShopping();
   if(t.dataset.assign!==undefined) writeAssign(t.dataset.assign, t.value);
+  if(t.dataset.libsort!==undefined){ librarySort=t.value; localStorage.setItem('fdp_libsort',librarySort); renderLibrary(); }
 });
 $('btnPropose').onclick=proposePlan;
 $('btnApprove').onclick=approvePlan;
@@ -838,7 +874,7 @@ async function ensureSeeded(){
   const snap=await getDocs(collection(db,'meals'));
   if(snap.empty){
     const b=writeBatch(db);
-    SEED_MEALS.forEach(m=> b.set(doc(collection(db,'meals')), {...m, recipe:RECIPES[m.name]||'', ratings:{}}));
+    SEED_MEALS.forEach((m,i)=> b.set(doc(collection(db,'meals')), {...m, recipe:RECIPES[m.name]||'', ratings:{}, createdAt:1000+i}));
     b.set(doc(db,'app','config'), config, {merge:true});
     await b.commit();
   }
@@ -846,11 +882,14 @@ async function ensureSeeded(){
 let recipesBackfilled=false;
 async function backfillRecipes(){
   if(recipesBackfilled) return; recipesBackfilled=true;
-  const todo=meals.filter(m=>(!m.recipe || !m.recipe.trim()) && RECIPES[m.name]);
-  if(!todo.length) return;
-  const b=writeBatch(db);
-  todo.forEach(m=> b.update(doc(db,'meals',m.id), { recipe: RECIPES[m.name] }));
-  try{ await b.commit(); }catch(e){}
+  const b=writeBatch(db); let n=0;
+  meals.forEach(m=>{
+    const upd={};
+    if((!m.recipe || !m.recipe.trim()) && RECIPES[m.name]) upd.recipe=RECIPES[m.name];
+    if(m.createdAt===undefined) upd.createdAt = (m.name in SEED_INDEX) ? 1000+SEED_INDEX[m.name] : 2000;
+    if(Object.keys(upd).length){ b.update(doc(db,'meals',m.id), upd); n++; }
+  });
+  if(n){ try{ await b.commit(); }catch(e){} }
 }
 function startListeners(){
   onSnapshot(collection(db,'meals'), s=>{ meals=s.docs.map(d=>({id:d.id, ...d.data(), ratings:d.data().ratings||{}, prefs:d.data().prefs||{}})); setSync(true); renderAll(); backfillRecipes(); }, ()=>setSync(false));
