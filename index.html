@@ -71,8 +71,11 @@ hr.soft{ border:none; border-top:1px solid #e4e8e4; margin:22px 0;}
 #syncBadge{ font-size:.78rem; color:#6a786f;}
 .config-warn{ background:#fdecec; border:1px solid #f3c4c4; color:#8a2b2b; padding:14px 16px; border-radius:12px; margin-bottom:16px; font-size:.9rem;}
 /* tabs + ratings */
-.tabs{ display:flex; gap:4px; flex-wrap:wrap; margin:4px 0 18px; border-bottom:1px solid #e4e8e4;}
-.tab-btn{ border:none; background:transparent; padding:9px 13px; font-size:.92rem; font-weight:600; color:#6a786f; cursor:pointer; border-bottom:2px solid transparent;}
+.tabs{ display:flex; gap:4px; flex-wrap:nowrap; margin:4px 0 18px; border-bottom:1px solid #e4e8e4;}
+.tab-btn{ flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; gap:3px; border:none; background:transparent; padding:8px 2px; font-weight:600; color:#6a786f; cursor:pointer; border-bottom:2px solid transparent;}
+.tab-btn>span{ pointer-events:none;}
+.tab-ico{ font-size:1.5rem; line-height:1;}
+.tab-lbl{ font-size:.78rem;}
 .tab-btn.active{ color:#2f7d4f; border-bottom-color:#2f7d4f;}
 .thumbs{ display:inline-flex; gap:10px;}
 .thumb{ font-size:1.18rem; cursor:pointer; opacity:.3; filter:grayscale(1); line-height:1; user-select:none;}
@@ -120,17 +123,17 @@ details.prefs[open]>summary{ margin-bottom:4px;}
     <div class="row">
       <span id="syncBadge"><span class="dot off"></span>connecting…</span>
       <button class="btn secondary small" id="btnWho">You: set</button>
-      <button class="btn secondary small" id="btnSettings">⚙️ Settings</button>
       <button class="btn secondary small" id="btnAddMeal">＋ Add meal</button>
+      <button class="btn secondary small" id="btnSettings">⚙️ Settings</button>
     </div>
   </header>
   <p class="sub">Proposes dinners weighted by your family's ratings. Everyone's ratings sync live across devices.</p>
 
   <div class="tabs">
-    <button class="tab-btn active" data-tab="plan">🍽️ Plan</button>
-    <button class="tab-btn" data-tab="library">📚 Library</button>
-    <button class="tab-btn" data-tab="cooked">✅ Cooked</button>
-    <button class="tab-btn" data-tab="ratings">📊 Ratings</button>
+    <button class="tab-btn active" data-tab="plan"><span class="tab-ico">🍽️</span><span class="tab-lbl">Plan</span></button>
+    <button class="tab-btn" data-tab="library"><span class="tab-ico">📚</span><span class="tab-lbl">Library</span></button>
+    <button class="tab-btn" data-tab="cooked"><span class="tab-ico">✅</span><span class="tab-lbl">Cooked</span></button>
+    <button class="tab-btn" data-tab="ratings"><span class="tab-ico">📊</span><span class="tab-lbl">Ratings</span></button>
   </div>
 
   <div id="tabPlan">
