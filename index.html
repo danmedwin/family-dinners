@@ -63,6 +63,19 @@ hr.soft{ border:none; border-top:1px solid #e4e8e4; margin:22px 0;}
 .dot.ok{ background:#2f7d4f;} .dot.off{ background:#c2492e;}
 #syncBadge{ font-size:.78rem; color:#6a786f;}
 .config-warn{ background:#fdecec; border:1px solid #f3c4c4; color:#8a2b2b; padding:14px 16px; border-radius:12px; margin-bottom:16px; font-size:.9rem;}
+/* tabs + ratings */
+.tabs{ display:flex; gap:4px; flex-wrap:wrap; margin:4px 0 18px; border-bottom:1px solid #e4e8e4;}
+.tab-btn{ border:none; background:transparent; padding:9px 13px; font-size:.92rem; font-weight:600; color:#6a786f; cursor:pointer; border-bottom:2px solid transparent;}
+.tab-btn.active{ color:#2f7d4f; border-bottom-color:#2f7d4f;}
+.thumbs{ display:inline-flex; gap:10px;}
+.thumb{ font-size:1.18rem; cursor:pointer; opacity:.3; filter:grayscale(1); line-height:1; user-select:none;}
+.thumb.up,.thumb.down{ opacity:1; filter:none;}
+.stars-ro{ letter-spacing:1px; color:#f0a92e; font-size:1rem;}
+.matrix-user{ display:flex; align-items:center; gap:14px; padding:4px 0; border-bottom:1px solid #f3f5f3; font-size:.88rem;}
+.matrix-user .nm{ flex:1; min-width:90px;}
+.empty-hint{ color:#6a786f; font-style:italic; padding:12px 2px;}
+details.prefs>summary{ cursor:pointer; font-weight:600; color:#2f7d4f; font-size:.85rem; margin-top:8px;}
+details.prefs[open]>summary{ margin-bottom:4px;}
 </style>
 </head>
 <body>
@@ -85,24 +98,44 @@ hr.soft{ border:none; border-top:1px solid #e4e8e4; margin:22px 0;}
     <h1>🍽️ Family Dinner Planner</h1>
     <div class="row">
       <span id="syncBadge"><span class="dot off"></span>connecting…</span>
+      <button class="btn secondary small" id="btnWho">You: set</button>
       <button class="btn secondary small" id="btnSettings">⚙️ Settings</button>
       <button class="btn secondary small" id="btnAddMeal">＋ Add meal</button>
     </div>
   </header>
   <p class="sub">Proposes dinners weighted by your family's ratings. Everyone's ratings sync live across devices.</p>
 
-  <div class="banner">Higher-rated meals show up more often; recently-eaten meals are held back for variety. Rate each dinner after you eat it so suggestions keep improving.</div>
-
-  <div class="row" style="margin-bottom:16px;">
-    <button class="btn" id="btnPropose">🎲 Propose <span id="batchLabel">3</span> dinners</button>
-    <button class="btn secondary" id="btnApprove" style="display:none;">✓ Approve &amp; build shopping list</button>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="plan">🍽️ Plan</button>
+    <button class="tab-btn" data-tab="library">📚 Library</button>
+    <button class="tab-btn" data-tab="cooked">✅ Cooked</button>
+    <button class="tab-btn" data-tab="ratings">📊 Ratings</button>
   </div>
 
-  <div id="planArea"></div>
-  <div id="shoppingArea"></div>
+  <div id="tabPlan">
+    <div id="favArea"></div>
+    <div class="banner">Higher-rated meals show up more often; 👍 meals from the Library are favored, 👎 meals less, and recently-eaten meals are held back for variety.</div>
+    <div class="row" style="margin-bottom:16px;">
+      <button class="btn" id="btnPropose">🎲 Propose <span id="batchLabel">3</span> dinners</button>
+      <button class="btn secondary" id="btnApprove" style="display:none;">✓ Approve &amp; build shopping list</button>
+    </div>
+    <div id="planArea"></div>
+    <div id="shoppingArea"></div>
+  </div>
 
-  <div class="section-title">📚 Meal library &amp; ratings</div>
-  <div id="libraryArea"></div>
+  <div id="tabLibrary" style="display:none;">
+    <div class="banner">Browse all meals. Set 👍 / 👎 per person to say what you'd like to try <em>before</em> cooking — this shapes what gets proposed.</div>
+    <div id="libraryArea"></div>
+  </div>
+
+  <div id="tabCooked" style="display:none;">
+    <div class="banner">Meals you've marked as made. Give each dinner 1–5 stars per person <em>after</em> eating.</div>
+    <div id="cookedArea"></div>
+  </div>
+
+  <div id="tabRatings" style="display:none;">
+    <div id="ratingsArea"></div>
+  </div>
 
   <div style="margin-top:28px; text-align:center;">
     <button class="btn ghost small" id="btnSignout" style="color:#8a978d;">Sign out on this device</button>
@@ -148,6 +181,15 @@ hr.soft{ border:none; border-top:1px solid #e4e8e4; margin:22px 0;}
   </div>
 </div>
 
+<!-- Who-am-I modal -->
+<div class="modal-bg" id="whoModal">
+  <div class="modal">
+    <h2>Who's using this device?</h2>
+    <p class="muted" style="font-size:.88rem;margin:0 0 14px;">We'll remember this on this device so your ratings are attributed to you. You can still rate for others (like the kids).</p>
+    <div id="whoList"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script type="module">
@@ -166,6 +208,9 @@ const firebaseConfig = {
 // The shared family account you create in Firebase Auth (email/password).
 // Family members only ever type the PASSWORD; this email is fixed.
 const FAMILY_EMAIL = "dinners@medw.in";
+// OPTIONAL: your Instacart backend (Cloudflare Worker) URL — lets any phone add to
+// Instacart. Leave "" to fall back to copy-list / the Mac app. See INSTACART_SETUP.md.
+const INSTACART_WORKER_URL = "";
 /* ============================================================ */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -215,7 +260,9 @@ const SEED_MEALS = [
 
 /* ---------------- In-memory state (synced from Firestore) ---------------- */
 let meals = [];                 // [{id, name, type, dairy, healthy, desc, ing, ratings:{rater:val}}]
-let config = { raters:["Adult 1","Adult 2","Kid 1","Kid 2","Kid 3"], batch:3 };
+const PLACEHOLDER_RATERS = ["Adult 1","Adult 2","Kid 1","Kid 2","Kid 3"];
+const FAMILY_RATERS = ["Dan","Lydia","Zimra","Gavi","Jasmine"];
+let config = { raters:FAMILY_RATERS.slice(), batch:3 };
 let plan = [];                  // [mealId,...] (shared)
 let history = [];               // [{date, mealIds:[...]}]
 let shoppingState = [];
@@ -229,12 +276,15 @@ function setSync(ok){ $('syncBadge').innerHTML = ok ? '<span class="dot ok"></sp
 /* ---------------- Rating + weighting ---------------- */
 function avgRating(m){ const v=Object.values(m.ratings||{}); return v.length? v.reduce((a,b)=>a+b,0)/v.length : null; }
 function plansSinceUsed(id){ for(let i=history.length-1,n=1;i>=0;i--,n++){ if((history[i].mealIds||[]).includes(id)) return n; } return 99; }
+function prefScore(m){ let s=0; Object.values(m.prefs||{}).forEach(v=>{ if(v==='up')s++; else if(v==='down')s--; }); return s; }
 function weightFor(m){
   const a=avgRating(m); const r=(a===null)?3.5:a;
   let w=Math.pow(r/3,2);
   const since=plansSinceUsed(m.id);
   const recency=Math.min(1,since/3);
   w*=(0.15+0.85*recency);
+  const ps=prefScore(m);                       // thumbs: up boosts, down suppresses
+  w*=Math.max(0.12, Math.min(2.5, 1+0.3*ps));
   return Math.max(0.02,w);
 }
 function weightedSample(pool,n){
@@ -270,6 +320,18 @@ async function setRating(mealId, raterEnc, val){
   if(cur===val) await updateDoc(ref,{['ratings.'+rater]: deleteField()});
   else await updateDoc(ref,{['ratings.'+rater]: val});
 }
+async function setPref(mealId, raterEnc, val){
+  const rater=decodeURIComponent(raterEnc);
+  const m=meals.find(x=>x.id===mealId); const cur=(m&&m.prefs&&m.prefs[rater])||'';
+  const ref=doc(db,'meals',mealId);
+  if(cur===val) await updateDoc(ref,{['prefs.'+rater]: deleteField()});
+  else await updateDoc(ref,{['prefs.'+rater]: val});
+}
+async function markMade(mealId){
+  const m=meals.find(x=>x.id===mealId); if(!m) return;
+  const ref=doc(db,'meals',mealId);
+  await updateDoc(ref,{ made: !m.made, lastMade: !m.made ? new Date().toISOString() : (m.lastMade||null) });
+}
 async function approvePlan(){
   if(!plan.length) return;
   await addDoc(collection(db,'history'), { date:new Date().toISOString(), mealIds: plan.slice() });
@@ -301,6 +363,12 @@ async function resetRatings(){
 }
 
 /* ---------------- Rendering ---------------- */
+let activeTab='plan', ratingsSort='meal', openLib=new Set(), favOpen=false;
+let myName = localStorage.getItem('fdp_me') || '';
+let whoPrompted = false;
+function meValid(){ return myName && config.raters.includes(myName); }
+function orderedRaters(){ const o=config.raters.filter(r=>r!==myName); return meValid()?[myName,...o]:config.raters.slice(); }
+function raterLabel(r){ return escapeHtml(r)+(r===myName?' <span class="muted">(You)</span>':''); }
 function tagsHtml(m){
   const t=[]; const lbl={veg:'Vegetarian',poultry:'Poultry',meat:'Beef',fish:'Fish'}[m.type]||m.type;
   const cls={veg:'veg',poultry:'meat',meat:'meat',fish:'fish'}[m.type]||'';
@@ -309,42 +377,98 @@ function tagsHtml(m){
   t.push(m.dairy?`<span class="tag dairy">Light dairy</span>`:`<span class="tag">Non-dairy</span>`);
   return `<div class="tags">${t.join('')}</div>`;
 }
-function starsHtml(m,rater){
-  const cur=(m.ratings&&m.ratings[rater])||0; let s='<span class="stars">';
-  for(let i=1;i<=5;i++) s+=`<span class="star ${i<=cur?'on':''}" data-rate="${m.id}|${encodeURIComponent(rater)}|${i}">★</span>`;
-  return s+'</span>';
-}
-function ratingBlock(m){
-  const rows=config.raters.map(r=>`<div class="rate-row"><span class="rate-name">${escapeHtml(r)}</span>${starsHtml(m,r)}</div>`).join('');
-  const a=avgRating(m); const n=Object.keys(m.ratings||{}).length;
-  const avgTxt=a===null?'not yet rated':`avg ${a.toFixed(1)}★ (${n})`;
-  return `<div class="ratings"><div class="rate-row"><strong style="font-size:.85rem;">Rate this dinner</strong><span class="avg">${avgTxt}</span></div>${rows}</div>`;
-}
-function mealCard(m,opts){ opts=opts||{};
-  return `<div class="card"><div class="meal-head"><div class="flex-grow">
-    <p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
-    ${opts.reroll?`<button class="btn ghost small" data-reroll="${m.id}">🔄 Swap</button>`:''}</div>
-    ${tagsHtml(m)}
-    <details class="ingredients"><summary>Ingredients (${m.ing.length})</summary><ul>${m.ing.map(i=>`<li>${escapeHtml(i)}</li>`).join('')}</ul></details>
-    ${ratingBlock(m)}</div>`;
-}
+function prefSummary(m){ let u=0,d=0; Object.values(m.prefs||{}).forEach(v=>{ if(v==='up')u++; else if(v==='down')d++; }); return {u,d}; }
+function summaryLine(m){ const a=avgRating(m); const p=prefSummary(m);
+  const stars=a!==null?`${a.toFixed(1)}★ (${Object.keys(m.ratings||{}).length})`:'no stars yet';
+  return `<span class="avg">${stars} · 👍${p.u} 👎${p.d}</span>`; }
+function starsInput(m,rater){ const cur=(m.ratings&&m.ratings[rater])||0; let s='<span class="stars">';
+  for(let i=1;i<=5;i++) s+=`<span class="star ${i<=cur?'on':''}" data-rate="${m.id}|${encodeURIComponent(rater)}|${i}">★</span>`; return s+'</span>'; }
+function thumbsInput(m,rater){ const cur=(m.prefs&&m.prefs[rater])||'';
+  return `<span class="thumbs"><span class="thumb ${cur==='up'?'up':''}" data-pref="${m.id}|${encodeURIComponent(rater)}|up" title="Sounds good">👍</span><span class="thumb ${cur==='down'?'down':''}" data-pref="${m.id}|${encodeURIComponent(rater)}|down" title="Not for me">👎</span></span>`; }
+function thumbDisp(v){ return v==='up'?'👍':v==='down'?'👎':'<span class="muted">–</span>'; }
+function starDisp(n){ return n?`<span class="stars-ro">${'★'.repeat(n)}${'☆'.repeat(5-n)}</span>`:'<span class="muted">–</span>'; }
+function ingredientsHtml(m){ return `<details class="ingredients"><summary>Ingredients (${m.ing.length})</summary><ul>${m.ing.map(i=>`<li>${escapeHtml(i)}</li>`).join('')}</ul></details>`; }
+function madeBtn(m){ return `<button class="btn ghost small" data-made="${m.id}">${m.made?'✓ Made':'Mark as made'}</button>`; }
+
 function renderPlan(){
   const area=$('planArea');
   const pm=plan.map(id=>meals.find(m=>m.id===id)).filter(Boolean);
-  if(!pm.length){ area.innerHTML=''; $('btnApprove').style.display='none'; return; }
-  area.innerHTML=`<div class="section-title">This plan</div>`+pm.map(m=>mealCard(m,{reroll:true})).join('');
+  if(!pm.length){ area.innerHTML='<div class="empty-hint">No plan yet — tap “Propose dinners”.</div>'; $('btnApprove').style.display='none'; return; }
+  area.innerHTML=`<div class="section-title">This plan</div>`+pm.map(m=>`<div class="card">
+    <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
+    <button class="btn ghost small" data-reroll="${m.id}">🔄 Swap</button></div>
+    ${tagsHtml(m)}${ingredientsHtml(m)}
+    <div class="rate-row" style="margin-top:10px;">${summaryLine(m)} ${madeBtn(m)}</div></div>`).join('');
   $('btnApprove').style.display='';
 }
 function renderLibrary(){
   const area=$('libraryArea');
-  const sorted=meals.slice().sort((a,b)=>{ const av=avgRating(a),bv=avgRating(b); return (bv===null?-1:bv)-(av===null?-1:av); });
-  const rows=sorted.map(m=>{ const a=avgRating(m);
-    const at=a===null?'<span class="muted">—</span>':`${a.toFixed(1)}★ <span class="muted">(${Object.keys(m.ratings||{}).length})</span>`;
-    return `<div class="lib-row"><div class="nm">${escapeHtml(m.name)}</div><div class="row"><span class="avg">${at}</span><button class="btn ghost small" data-remove="${m.id}" title="Remove">✕</button></div></div>`;
-  }).join('');
-  area.innerHTML=`<div class="card"><div class="muted" style="font-size:.82rem;margin-bottom:6px;">${meals.length} dinners · sorted by rating</div>${rows}</div>`;
+  const sorted=meals.slice().sort((a,b)=>a.name.localeCompare(b.name));
+  area.innerHTML=`<div class="muted" style="font-size:.82rem;margin-bottom:8px;">${meals.length} dinners</div>`+
+    sorted.map(m=>`<div class="card">
+      <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
+      <button class="btn ghost small" data-remove="${m.id}" title="Remove">✕</button></div>
+      ${tagsHtml(m)}
+      <div class="rate-row">${summaryLine(m)} ${madeBtn(m)}</div>
+      <details class="prefs" data-libid="${m.id}" ${openLib.has(m.id)?'open':''}><summary>Set 👍 / 👎 per person</summary>
+        ${orderedRaters().map(r=>`<div class="rate-row"><span class="rate-name">${raterLabel(r)}</span>${thumbsInput(m,r)}</div>`).join('')}
+      </details></div>`).join('');
 }
-function renderAll(){ $('batchLabel').textContent=config.batch; renderPlan(); renderLibrary(); }
+function renderCooked(){
+  const area=$('cookedArea');
+  const made=meals.filter(m=>m.made).sort((a,b)=>(b.lastMade||'').localeCompare(a.lastMade||''));
+  if(!made.length){ area.innerHTML='<div class="empty-hint">No meals marked as made yet. Use “Mark as made” on the Plan or Library tab, then rate them here.</div>'; return; }
+  area.innerHTML=made.map(m=>`<div class="card">
+    <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
+    <button class="btn ghost small" data-made="${m.id}">↩︎ Unmark</button></div>
+    ${tagsHtml(m)}
+    <div class="ratings"><div class="rate-row"><strong style="font-size:.85rem;">Rate after eating (1–5★)</strong>${summaryLine(m)}</div>
+    ${orderedRaters().map(r=>`<div class="rate-row"><span class="rate-name">${raterLabel(r)}</span>${starsInput(m,r)}</div>`).join('')}</div></div>`).join('');
+}
+function renderRatings(){
+  const area=$('ratingsArea');
+  const toggle=`<div class="row" style="margin-bottom:14px;align-items:center;">
+    <span class="muted" style="font-size:.85rem;">Sort by:</span>
+    <button class="btn ${ratingsSort==='meal'?'':'secondary'} small" data-rsort="meal">Meal</button>
+    <button class="btn ${ratingsSort==='person'?'':'secondary'} small" data-rsort="person">Person</button></div>`;
+  let body='';
+  if(ratingsSort==='meal'){
+    const sorted=meals.slice().sort((a,b)=>{ const av=avgRating(a),bv=avgRating(b); return (bv===null?-1:bv)-(av===null?-1:av); });
+    body=sorted.map(m=>`<div class="card"><div class="meal-head"><p class="meal-name" style="font-size:1rem;">${escapeHtml(m.name)}</p>${summaryLine(m)}</div>
+      ${config.raters.map(r=>{ const pre=(m.prefs&&m.prefs[r])||''; const post=(m.ratings&&m.ratings[r])||0;
+        return `<div class="matrix-user"><span class="nm">${escapeHtml(r)}</span><span>pre ${thumbDisp(pre)}</span><span>post ${starDisp(post)}</span></div>`; }).join('')}</div>`).join('');
+  } else {
+    body=config.raters.map(r=>{
+      const rows=meals.filter(m=>((m.prefs&&m.prefs[r])||(m.ratings&&m.ratings[r]))).sort((a,b)=>a.name.localeCompare(b.name))
+        .map(m=>{ const pre=(m.prefs&&m.prefs[r])||''; const post=(m.ratings&&m.ratings[r])||0;
+          return `<div class="matrix-user"><span class="nm" style="min-width:150px;">${escapeHtml(m.name)}</span><span>pre ${thumbDisp(pre)}</span><span>post ${starDisp(post)}</span></div>`; }).join('');
+      return `<div class="card"><p class="meal-name" style="font-size:1rem;">${escapeHtml(r)}</p>${rows||'<div class="empty-hint">No ratings yet.</div>'}</div>`;
+    }).join('');
+  }
+  area.innerHTML=toggle+body;
+}
+function renderFavorites(){
+  const area=$('favArea'); if(!area) return;
+  const rated=meals.filter(m=>avgRating(m)!==null).sort((a,b)=>avgRating(b)-avgRating(a)).slice(0,5);
+  if(!rated.length){ area.innerHTML=''; return; }
+  area.innerHTML=`<details class="prefs" data-fav="1" ${favOpen?'open':''}><summary>⭐ Family favorites (top rated)</summary>
+    <div class="card" style="margin-top:8px;">${rated.map((m,i)=>`<div class="lib-row"><div class="nm">${i+1}. ${escapeHtml(m.name)}</div><span class="avg">${avgRating(m).toFixed(1)}★ <span class="muted">(${Object.keys(m.ratings||{}).length})</span></span></div>`).join('')}</div></details>`;
+}
+/* ---- device identity ("I am ___") ---- */
+function updateWhoChip(){ const b=$('btnWho'); if(b) b.textContent='You: '+(meValid()?myName:'set'); }
+function openWho(){ renderWhoList(); $('whoModal').classList.add('show'); }
+function renderWhoList(){
+  $('whoList').innerHTML=config.raters.map(r=>`<button class="btn ${r===myName?'':'secondary'}" style="width:100%;margin-bottom:8px;" data-who="${encodeURIComponent(r)}">${escapeHtml(r)}</button>`).join('')
+    || '<div class="empty-hint">Add family members in Settings first.</div>';
+}
+function setWho(enc){ myName=decodeURIComponent(enc); localStorage.setItem('fdp_me',myName); closeModal('whoModal'); renderAll(); toast('Set to '+myName+' on this device.'); }
+function maybePromptWho(){ if(whoPrompted) return; if(config.raters.length && !meValid()){ whoPrompted=true; openWho(); } }
+function cap(s){ return s[0].toUpperCase()+s.slice(1); }
+function setTab(t){ activeTab=t;
+  ['plan','library','cooked','ratings'].forEach(x=>{ const el=$('tab'+cap(x)); if(el) el.style.display=(x===t)?'':'none'; });
+  [...document.querySelectorAll('.tab-btn')].forEach(b=>b.classList.toggle('active', b.dataset.tab===t));
+}
+function renderAll(){ $('batchLabel').textContent=config.batch; updateWhoChip(); renderFavorites(); renderPlan(); renderLibrary(); renderCooked(); renderRatings(); maybePromptWho(); }
 
 /* ---------------- Shopping list + Instacart ---------------- */
 function consolidatedIngredients(){
@@ -371,19 +495,36 @@ function renderShopping(){
 function copyList(){ navigator.clipboard.writeText(shoppingState.filter(i=>i.checked).map(i=>'• '+i.name).join('\n')).then(()=>toast("Shopping list copied.")); }
 async function sendToInstacart(){
   const chosen=shoppingState.filter(i=>i.checked); if(!chosen.length){ toast("Nothing checked."); return; }
-  const res=$('instacartResult'); const queries=chosen.map(i=>({query:i.name,quantity:1}));
-  // Works automatically only when opened inside Cowork (Instacart connector present).
+  const res=$('instacartResult'); const btn=$('btnInstacart');
+  const planNames=plan.map(id=>{ const m=meals.find(x=>x.id===id); return m?m.name:null; }).filter(Boolean);
+  // 1) Backend (Cloudflare Worker) — works from any phone/browser
+  if(INSTACART_WORKER_URL){
+    btn.disabled=true; btn.textContent='Building Instacart list…';
+    try{
+      const r=await fetch(INSTACART_WORKER_URL,{ method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ title:'Family dinners'+(planNames.length?': '+planNames.join(', '):''), items:chosen.map(i=>({name:i.name, quantity:i.count||1})) }) });
+      if(!r.ok) throw new Error('backend '+r.status);
+      const d=await r.json(); const url=d.url||d.products_link_url;
+      if(!url) throw new Error('no link returned');
+      res.innerHTML=`<div class="banner">✓ Your Instacart list is ready. <a href="${url}" target="_blank" rel="noopener"><strong>Open it in Instacart →</strong></a> Pick your store and add everything to the cart.</div>`;
+      window.open(url,'_blank','noopener'); btn.textContent='✓ List ready'; btn.disabled=false; return;
+    }catch(e){ btn.disabled=false; btn.textContent='🛒 Send items to Instacart';
+      copyList();
+      res.innerHTML=`<div class="banner warn">Couldn't reach the Instacart backend (${escapeHtml(String(e.message||e))}). Copied the list — <a href="https://www.instacart.com/store" target="_blank" rel="noopener">open Instacart</a> and paste.</div>`; return; }
+  }
+  // 2) Inside the Claude Mac app (Instacart connector present)
   if(window.cowork && window.cowork.callMcpTool){
     try{
-      const r=await window.cowork.callMcpTool('mcp__4356ac99-e750-4f57-8b96-f8ebcc97a0dd__cart',{quick_add_search_queries:queries});
+      const r=await window.cowork.callMcpTool('mcp__4356ac99-e750-4f57-8b96-f8ebcc97a0dd__cart',{quick_add_search_queries:chosen.map(i=>({query:i.name,quantity:1}))});
       let d={}; try{ d=r.structuredContent ?? JSON.parse(r.content[0].text);}catch(e){ d=r; }
       const items=(d.artifacts&&d.artifacts.cart&&d.artifacts.cart.items)||[];
       res.innerHTML=`<div class="banner">✓ Sent to Instacart. ${items.length} item(s) added to your cart — review and check out there.</div>`;
       toast("Items sent to Instacart."); return;
     }catch(e){ /* fall through */ }
   }
+  // 3) Fallback: copy + open Instacart
   copyList();
-  res.innerHTML=`<div class="banner warn">Your list is copied. Open Instacart, then paste it into the search to add items, or have the account owner push it from the Cowork app. <a href="https://www.instacart.com/store" target="_blank" rel="noopener">Open Instacart →</a></div>`;
+  res.innerHTML=`<div class="banner warn">Your list is copied. <a href="https://www.instacart.com/store" target="_blank" rel="noopener">Open Instacart</a> and paste to add items. (Tip: set up the backend so this becomes one tap — see INSTACART_SETUP.md.)</div>`;
 }
 
 /* ---------------- Settings UI ---------------- */
@@ -410,10 +551,19 @@ document.addEventListener('click', e=>{
   if(t.dataset.reroll) rerollOne(t.dataset.reroll);
   if(t.dataset.remove) removeMeal(t.dataset.remove);
   if(t.dataset.rate){ const [id,rt,v]=t.dataset.rate.split('|'); setRating(id,rt,+v); }
+  if(t.dataset.pref){ const [id,rt,v]=t.dataset.pref.split('|'); setPref(id,rt,v); }
+  if(t.dataset.made) markMade(t.dataset.made);
+  if(t.dataset.tab) setTab(t.dataset.tab);
+  if(t.dataset.rsort){ ratingsSort=t.dataset.rsort; renderRatings(); }
+  if(t.dataset.who) setWho(t.dataset.who);
   if(t.dataset.rdel!==undefined && t.dataset.rdel!==''){ raterDraft.splice(+t.dataset.rdel,1); renderRatersEdit(); }
   if(t.id==='btnInstacart') sendToInstacart();
   if(t.id==='btnCopy') copyList();
 });
+document.addEventListener('toggle', e=>{ const d=e.target; if(!d.dataset) return;
+  if(d.dataset.libid){ if(d.open) openLib.add(d.dataset.libid); else openLib.delete(d.dataset.libid); }
+  if(d.dataset.fav){ favOpen=d.open; }
+}, true);
 document.addEventListener('input', e=>{
   const t=e.target;
   if(t.dataset.rdraft!==undefined) raterDraft[+t.dataset.rdraft]=t.value;
@@ -423,6 +573,7 @@ document.addEventListener('change', e=>{ if(e.target.dataset.item!==undefined) r
 $('btnPropose').onclick=proposePlan;
 $('btnApprove').onclick=approvePlan;
 $('btnSettings').onclick=openSettings;
+$('btnWho').onclick=openWho;
 $('btnAddMeal').onclick=()=>$('addMealModal').classList.add('show');
 $('btnSaveMeal').onclick=saveMeal;
 $('btnAddRater').onclick=()=>{ raterDraft.push("New person"); renderRatersEdit(); };
@@ -454,8 +605,20 @@ async function ensureSeeded(){
   }
 }
 function startListeners(){
-  onSnapshot(collection(db,'meals'), s=>{ meals=s.docs.map(d=>({id:d.id, ...d.data(), ratings:d.data().ratings||{}})); setSync(true); renderAll(); }, ()=>setSync(false));
-  onSnapshot(doc(db,'app','config'), s=>{ if(s.exists()){ config={...config, ...s.data()}; renderAll(); } });
+  onSnapshot(collection(db,'meals'), s=>{ meals=s.docs.map(d=>({id:d.id, ...d.data(), ratings:d.data().ratings||{}, prefs:d.data().prefs||{}})); setSync(true); renderAll(); }, ()=>setSync(false));
+  onSnapshot(doc(db,'app','config'), s=>{
+    if(s.exists()){
+      config={...config, ...s.data()};
+      const r=config.raters||[];
+      // one-time migration: replace untouched placeholder names with the family's names
+      if(r.length===PLACEHOLDER_RATERS.length && r.every((n,i)=>n===PLACEHOLDER_RATERS[i])){
+        writeConfig({ raters:FAMILY_RATERS.slice() });
+      }
+      renderAll();
+    } else {
+      writeConfig({ raters:FAMILY_RATERS.slice(), batch:config.batch });
+    }
+  });
   onSnapshot(doc(db,'app','state'), s=>{ plan=(s.exists()&&s.data().plan)||[]; renderPlan(); });
   onSnapshot(collection(db,'history'), s=>{ history=s.docs.map(d=>d.data()).sort((a,b)=>(a.date||'').localeCompare(b.date||'')); });
 }
