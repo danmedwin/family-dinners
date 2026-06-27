@@ -76,6 +76,9 @@ hr.soft{ border:none; border-top:1px solid #e4e8e4; margin:22px 0;}
 .empty-hint{ color:#6a786f; font-style:italic; padding:12px 2px;}
 details.prefs>summary{ cursor:pointer; font-weight:600; color:#2f7d4f; font-size:.85rem; margin-top:8px;}
 details.prefs[open]>summary{ margin-bottom:4px;}
+.ic-links{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;}
+.ic-link{ display:inline-block; background:#eef6f0; border:1px solid #cfe6d8; color:#1f6b3f; border-radius:999px; padding:6px 12px; font-size:.88rem; text-decoration:none; font-weight:600;}
+.ic-link:hover{ background:#e2efe7;}
 </style>
 </head>
 <body>
@@ -208,9 +211,12 @@ const firebaseConfig = {
 // The shared family account you create in Firebase Auth (email/password).
 // Family members only ever type the PASSWORD; this email is fixed.
 const FAMILY_EMAIL = "dinners@medw.in";
-// OPTIONAL: your Instacart backend (Cloudflare Worker) URL — lets any phone add to
-// Instacart. Leave "" to fall back to copy-list / the Mac app. See INSTACART_SETUP.md.
+// OPTIONAL: your Instacart backend (Cloudflare Worker) URL — one-tap add from any phone.
+// Requires an Instacart API key, which is currently closed to new developers. Leave "" to
+// use the no-key "tap each item" flow below. See INSTACART_SETUP.md.
 const INSTACART_WORKER_URL = "";
+// Your Instacart store slug (used for the no-key tap-through links).
+const INSTACART_STORE_SLUG = "publix";
 /* ============================================================ */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -522,9 +528,9 @@ async function sendToInstacart(){
       toast("Items sent to Instacart."); return;
     }catch(e){ /* fall through */ }
   }
-  // 3) Fallback: copy + open Instacart
-  copyList();
-  res.innerHTML=`<div class="banner warn">Your list is copied. <a href="https://www.instacart.com/store" target="_blank" rel="noopener">Open Instacart</a> and paste to add items. (Tip: set up the backend so this becomes one tap — see INSTACART_SETUP.md.)</div>`;
+  // 3) No backend / on a phone: tap-through Instacart search links (works anywhere, no API key)
+  const links=chosen.map(i=>`<a class="ic-link" href="https://www.instacart.com/store/${INSTACART_STORE_SLUG}/s?k=${encodeURIComponent(i.name)}" target="_blank" rel="noopener">${escapeHtml(i.name)} →</a>`).join('');
+  res.innerHTML=`<div class="banner">Tap each item to open it on Instacart (${escapeHtml(INSTACART_STORE_SLUG)}) and add to your cart. Use “Copy list” if you'd rather paste.</div><div class="ic-links">${links}</div>`;
 }
 
 /* ---------------- Settings UI ---------------- */
