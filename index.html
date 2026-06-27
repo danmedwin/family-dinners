@@ -127,7 +127,6 @@ details.prefs[open]>summary{ margin-bottom:4px;}
     <div class="row">
       <span id="syncBadge"><span class="dot off"></span>connecting…</span>
       <button class="btn secondary small" id="btnWho">You: set</button>
-      <button class="btn secondary small" id="btnAddMeal">＋ Add meal</button>
       <button class="btn secondary small" id="btnSettings">⚙️ Settings</button>
     </div>
   </header>
@@ -185,33 +184,6 @@ details.prefs[open]>summary{ margin-bottom:4px;}
   </div>
 </div>
 
-<!-- Add meal modal -->
-<div class="modal-bg" id="addMealModal">
-  <div class="modal">
-    <h2>Add a meal</h2>
-    <div class="field"><label>Meal name</label><input type="text" id="amName" placeholder="e.g. Veggie Stir-Fry"></div>
-    <div class="field"><label>Short description</label><input type="text" id="amDesc" placeholder="e.g. Tofu and crisp veggies over rice"></div>
-    <div class="field"><label>Protein type</label>
-      <select id="amType" style="padding:7px 9px;border:1px solid #ccd4cd;border-radius:8px;font-size:.92rem;">
-        <option value="veg">Vegetarian</option><option value="poultry">Poultry</option>
-        <option value="meat">Meat (beef)</option><option value="fish">Fish</option>
-      </select>
-    </div>
-    <div class="field"><label>Ingredients (one per line — keep names simple for Instacart search)</label>
-      <textarea id="amIng" rows="6" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;" placeholder="firm tofu&#10;broccoli&#10;soy sauce&#10;jasmine rice"></textarea>
-      <div id="amIngAiRow" style="display:none;margin-top:6px;"><button class="btn secondary small" id="btnAiIngredients">✨ Suggest ingredients from steps</button></div>
-    </div>
-    <div class="field"><label>Recipe / instructions (optional — shows in the calendar event notes)</label>
-      <textarea id="amRecipe" rows="6" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;" placeholder="1. Press and cube the tofu.&#10;2. Stir-fry veggies 5 min.&#10;3. Add sauce, simmer, serve over rice."></textarea>
-      <div id="amRecipeAiRow" style="display:none;margin-top:6px;"><button class="btn secondary small" id="btnAiRecipe">✨ Draft recipe from ingredients</button> <span class="muted" style="font-size:.78rem;">(uses what makes a good dish — not necessarily all)</span></div>
-    </div>
-    <div class="row" style="justify-content:flex-end;margin-top:6px;">
-      <button class="btn secondary" data-close="addMealModal">Cancel</button>
-      <button class="btn" id="btnSaveMeal">Save meal</button>
-    </div>
-  </div>
-</div>
-
 <!-- Who-am-I modal -->
 <div class="modal-bg" id="whoModal">
   <div class="modal">
@@ -221,40 +193,77 @@ details.prefs[open]>summary{ margin-bottom:4px;}
   </div>
 </div>
 
-<!-- Add Dinners (AI generator) modal -->
+<!-- Add dinners (combined: Generate + Add your own) -->
 <div class="modal-bg" id="addDinnersModal">
   <div class="modal" style="max-width:580px;">
-    <h2>✨ Add dinners</h2>
-    <p class="muted" style="font-size:.85rem;margin:0 0 12px;">Pick any criteria (all optional), generate ideas, then tap ＋ to add ones you like to your Library.</p>
-    <div class="field"><label>Protein</label>
-      <div class="fchips" id="genTypes">
-        <button class="fchip" data-gentype="veg">Vegetarian</button>
-        <button class="fchip" data-gentype="poultry">Poultry</button>
-        <button class="fchip" data-gentype="meat">Beef</button>
-        <button class="fchip" data-gentype="fish">Fish</button>
-      </div></div>
-    <div class="field"><label>Prep time</label>
-      <div class="fchips" id="genPrep">
-        <button class="fchip on" data-genprep="any">Any</button>
-        <button class="fchip" data-genprep="u15">Under 15 min</button>
-        <button class="fchip" data-genprep="15-30">15–30 min</button>
-        <button class="fchip" data-genprep="30-45">30–45 min</button>
-      </div></div>
-    <div class="field"><label>Preferences</label>
-      <div class="fchips" id="genToggles">
-        <button class="fchip" data-gentoggle="healthy">Healthy</button>
-        <button class="fchip" data-gentoggle="nondairy">Non-dairy</button>
-      </div></div>
-    <div class="field"><label>Cuisine / notes (optional)</label>
-      <input type="text" id="genNotes" placeholder="e.g. Mexican, sheet-pan, pantry staples"></div>
-    <div class="field"><label>Ingredients I have (optional — “what can I make?”)</label>
-      <textarea id="genHave" rows="3" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;" placeholder="e.g. chicken thighs, spinach, lemon, rice"></textarea></div>
-    <div class="row" style="gap:8px;align-items:center;">
-      <button class="btn" id="btnGenIdeas">Generate ideas</button>
-      <button class="btn secondary" id="btnGenRefresh" style="display:none;">🔄 Refresh</button>
-      <button class="btn secondary" data-close="addDinnersModal" style="margin-left:auto;">Close</button>
+    <h2>Add dinners</h2>
+    <div class="row" style="gap:6px;margin-bottom:14px;">
+      <button class="btn add-tab" data-addtab="gen">✨ Generate</button>
+      <button class="btn secondary add-tab" data-addtab="own">✍️ Add your own</button>
     </div>
-    <div id="genResults" style="margin-top:14px;"></div>
+
+    <div id="addTabGen">
+      <p class="muted" style="font-size:.85rem;margin:0 0 12px;">Pick any criteria (all optional), generate ideas, then tap ＋ to add ones you like.</p>
+      <div class="field"><label>Protein</label>
+        <div class="fchips" id="genTypes">
+          <button class="fchip" data-gentype="veg">Vegetarian</button>
+          <button class="fchip" data-gentype="poultry">Poultry</button>
+          <button class="fchip" data-gentype="meat">Beef</button>
+          <button class="fchip" data-gentype="fish">Fish</button>
+        </div></div>
+      <div class="field"><label>Prep time</label>
+        <div class="fchips" id="genPrep">
+          <button class="fchip on" data-genprep="any">Any</button>
+          <button class="fchip" data-genprep="u15">Under 15 min</button>
+          <button class="fchip" data-genprep="15-30">15–30 min</button>
+          <button class="fchip" data-genprep="30-45">30–45 min</button>
+        </div></div>
+      <div class="field"><label>Preferences</label>
+        <div class="fchips" id="genToggles">
+          <button class="fchip" data-gentoggle="healthy">Healthy</button>
+          <button class="fchip" data-gentoggle="nondairy">Non-dairy</button>
+        </div></div>
+      <div class="field"><label>Cuisine / notes (optional)</label>
+        <input type="text" id="genNotes" placeholder="e.g. Mexican, sheet-pan, pantry staples"></div>
+      <div class="field"><label>Ingredients I have (optional — what can I make?)</label>
+        <textarea id="genHave" rows="3" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;" placeholder="e.g. chicken thighs, spinach, lemon, rice"></textarea></div>
+      <div class="row" style="gap:8px;align-items:center;">
+        <button class="btn" id="btnGenIdeas">Generate ideas</button>
+        <button class="btn secondary" id="btnGenRefresh" style="display:none;">🔄 Refresh</button>
+        <button class="btn secondary" data-close="addDinnersModal" style="margin-left:auto;">Close</button>
+      </div>
+      <div id="genResults" style="margin-top:14px;"></div>
+    </div>
+
+    <div id="addTabOwn" style="display:none;">
+      <div class="field"><label>Meal name</label><input type="text" id="amName" placeholder="e.g. Veggie Stir-Fry"></div>
+      <div class="field"><label>Short description</label><input type="text" id="amDesc" placeholder="e.g. Tofu and crisp veggies over rice"></div>
+      <div class="field"><label>Protein type</label>
+        <select id="amType" style="padding:7px 9px;border:1px solid #ccd4cd;border-radius:8px;font-size:.92rem;">
+          <option value="veg">Vegetarian</option><option value="poultry">Poultry</option>
+          <option value="meat">Meat (beef)</option><option value="fish">Fish</option>
+        </select></div>
+      <div class="field"><label>Prep time</label>
+        <select id="amPrep" style="padding:7px 9px;border:1px solid #ccd4cd;border-radius:8px;font-size:.92rem;">
+          <option value="">— select —</option>
+          <option value="u15">Under 15 min</option>
+          <option value="15-30">15–30 min</option>
+          <option value="30-45">30–45 min</option>
+          <option value="45+">45+ min</option>
+        </select></div>
+      <div class="field"><label>Ingredients (one per line — keep names simple for Instacart search)</label>
+        <textarea id="amIng" rows="6" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;" placeholder="firm tofu&#10;broccoli&#10;soy sauce&#10;jasmine rice"></textarea>
+        <div id="amIngAiRow" style="display:none;margin-top:6px;"><button class="btn secondary small" id="btnAiIngredients">✨ Suggest ingredients from steps</button></div>
+      </div>
+      <div class="field"><label>Recipe / instructions (optional — shows in the calendar event notes)</label>
+        <textarea id="amRecipe" rows="6" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;" placeholder="1. Press and cube the tofu.&#10;2. Stir-fry veggies 5 min.&#10;3. Add sauce, simmer, serve over rice."></textarea>
+        <div id="amRecipeAiRow" style="display:none;margin-top:6px;"><button class="btn secondary small" id="btnAiRecipe">✨ Draft recipe from ingredients</button> <span class="muted" style="font-size:.78rem;">(uses what makes a good dish — not necessarily all)</span></div>
+      </div>
+      <div class="row" style="justify-content:flex-end;gap:8px;margin-top:6px;">
+        <button class="btn secondary" data-close="addDinnersModal">Close</button>
+        <button class="btn" id="btnSaveMeal">Save meal</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -352,6 +361,18 @@ const SEED_MEALS = [
 ];
 
 const SEED_INDEX = Object.fromEntries(SEED_MEALS.map((m,i)=>[m.name,i]));
+/* Prep-time estimates (canonical: u15 / 15-30 / 30-45 / 45+) for the starter meals. */
+const PREP_SEED = {
+  "Sheet-Pan Lemon Herb Chicken & Veggies":"30-45","Teriyaki Salmon Bowls":"15-30","Turkey Taco Night":"15-30",
+  "Veggie & Tofu Stir-Fry":"15-30","Mediterranean Chicken Bowls":"15-30","Spaghetti with Turkey Meatballs":"30-45",
+  "Black Bean & Veggie Quesadillas":"15-30","Honey Garlic Chicken Thighs":"15-30","Beef & Broccoli":"15-30",
+  "Baked Falafel Pita Bowls":"15-30","Lentil Soup with Crusty Bread":"30-45","Grilled Chicken Fajitas":"15-30",
+  "Veggie Burgers & Sweet Potato Fries":"30-45","Baked Cod with Roasted Potatoes":"30-45","Chicken Soup with Matzo Balls":"45+",
+  "Stuffed Bell Peppers":"45+","Pesto Pasta with Cherry Tomatoes":"15-30","Korean-Style Beef Bowls":"15-30",
+  "Veggie Chili":"30-45","Baked Teriyaki Tofu & Rice":"30-45","Chicken Shawarma Bowls":"30-45",
+  "Salmon & Asparagus Sheet Pan":"30-45","Margherita Flatbread & Salad":"15-30","Soba Noodle Veggie Bowl":"15-30",
+  "Mango Black Bean Tacos":"15-30","Herb-Roasted Turkey Breast & Veggies":"45+"
+};
 /* Recipes for the starter meals (keyed by exact name). Used for fresh installs and to
    backfill existing meals that have no recipe yet. */
 const RECIPES = {
@@ -526,10 +547,11 @@ async function aiRecipeFromIngredients(){
   }catch(e){ toast('AI unavailable — write the recipe manually.'); }
   btn.disabled=false; btn.textContent='✨ Draft recipe from ingredients';
 }
-function openAddMeal(){
-  const show = RECIPE_AI_WORKER_URL ? '' : 'none';
-  const a=$('amIngAiRow'), b=$('amRecipeAiRow'); if(a) a.style.display=show; if(b) b.style.display=show;
-  $('addMealModal').classList.add('show');
+function setAddTab(tab){
+  $('addTabGen').style.display = tab==='gen' ? '' : 'none';
+  $('addTabOwn').style.display = tab==='own' ? '' : 'none';
+  document.querySelectorAll('.add-tab').forEach(b=> b.classList.toggle('secondary', b.dataset.addtab!==tab));
+  if(tab==='own'){ const show=RECIPE_AI_WORKER_URL?'':'none'; const a=$('amIngAiRow'), c=$('amRecipeAiRow'); if(a) a.style.display=show; if(c) c.style.display=show; }
 }
 /* ---- Add Dinners generator ---- */
 function openAddDinners(){
@@ -537,6 +559,7 @@ function openAddDinners(){
   document.querySelectorAll('#genPrep .fchip').forEach(c=>c.classList.toggle('on', c.dataset.genprep===genCriteria.prep));
   document.querySelectorAll('#genToggles .fchip').forEach(c=>c.classList.toggle('on', !!genCriteria[c.dataset.gentoggle]));
   $('genNotes').value=genCriteria.notes||''; $('genHave').value=genCriteria.have||'';
+  setAddTab('gen');
   $('addDinnersModal').classList.add('show');
 }
 function ideaTags(idea){
@@ -579,7 +602,7 @@ async function generateIdeas(){
 async function addIdea(i){
   const idea=genIdeas[i]; if(!idea) return;
   const type=['veg','poultry','meat','fish'].includes(idea.type)?idea.type:'veg';
-  await addDoc(collection(db,'meals'), { name:idea.name||'New dinner', desc:idea.desc||'', type, dairy:!!idea.dairy, healthy:idea.healthy!==false, ing:Array.isArray(idea.ing)?idea.ing.map(String):[], recipe:idea.recipe||'', ratings:{}, prefs:{}, createdAt:Date.now() });
+  await addDoc(collection(db,'meals'), { name:idea.name||'New dinner', desc:idea.desc||'', type, dairy:!!idea.dairy, healthy:idea.healthy!==false, ing:Array.isArray(idea.ing)?idea.ing.map(String):[], recipe:idea.recipe||'', prep:normPrep(idea.prep), ratings:{}, prefs:{}, createdAt:Date.now() });
   genAddedNames.add(idea.name); renderGenResults(); toast('Added to Library.');
 }
 async function approvePlan(){
@@ -594,9 +617,9 @@ async function saveMeal(){
   const name=$('amName').value.trim(); if(!name){ toast("Give the meal a name."); return; }
   const ing=$('amIng').value.split('\n').map(s=>s.trim()).filter(Boolean);
   if(!ing.length){ toast("Add at least one ingredient."); return; }
-  await addDoc(collection(db,'meals'), { name, desc:$('amDesc').value.trim(), type:$('amType').value, dairy:false, healthy:true, ing, recipe:$('amRecipe').value.trim(), ratings:{}, createdAt:Date.now() });
-  $('amName').value=''; $('amDesc').value=''; $('amIng').value=''; $('amRecipe').value='';
-  closeModal('addMealModal'); toast("Meal added.");
+  await addDoc(collection(db,'meals'), { name, desc:$('amDesc').value.trim(), type:$('amType').value, dairy:false, healthy:true, ing, recipe:$('amRecipe').value.trim(), prep:$('amPrep').value, ratings:{}, createdAt:Date.now() });
+  $('amName').value=''; $('amDesc').value=''; $('amIng').value=''; $('amRecipe').value=''; $('amPrep').value='';
+  closeModal('addDinnersModal'); toast("Meal added.");
 }
 async function removeMeal(id){
   if(!confirm('Remove this meal from the library?')) return;
@@ -620,16 +643,25 @@ let activeFilters = new Set(JSON.parse(localStorage.getItem('fdp_libfilters')||'
 let librarySearch = '';
 let genCriteria = { types:new Set(), prep:'any', healthy:false, nondairy:false, notes:'', have:'' };
 let genIdeas = []; let genAddedNames = new Set();
-const LIB_FILTERS=[{k:'veg',label:'Vegetarian'},{k:'poultry',label:'Poultry'},{k:'meat',label:'Beef'},{k:'fish',label:'Fish'},{k:'healthy',label:'Healthy'},{k:'nondairy',label:'Non-dairy'},{k:'dairy',label:'Light dairy'}];
+const LIB_FILTERS=[{k:'veg',label:'Vegetarian'},{k:'poultry',label:'Poultry'},{k:'meat',label:'Beef'},{k:'fish',label:'Fish'},{k:'healthy',label:'Healthy'},{k:'nondairy',label:'Non-dairy'},{k:'dairy',label:'Light dairy'},{k:'u15',label:'⏱ <15'},{k:'15-30',label:'⏱ 15–30'},{k:'30-45',label:'⏱ 30–45'},{k:'45+',label:'⏱ 45+'}];
 let myName = localStorage.getItem('fdp_me') || '';
 let whoPrompted = false;
 function meValid(){ return myName && config.raters.includes(myName); }
 function orderedRaters(){ const o=config.raters.filter(r=>r!==myName); return meValid()?[myName,...o]:config.raters.slice(); }
 function raterLabel(r){ return escapeHtml(r)+(r===myName?' <span class="muted">(You)</span>':''); }
+const PREP_LABELS={ 'u15':'Under 15 min','15-30':'15–30 min','30-45':'30–45 min','45+':'45+ min' };
+function normPrep(s){ if(!s) return ''; if(PREP_LABELS[s]) return s; const k=String(s).toLowerCase();
+  if(k.includes('under 15')||k.includes('<15')||k.includes('u15')) return 'u15';
+  if(k.includes('15')&&k.includes('30')) return '15-30';
+  if(k.includes('30')&&k.includes('45')) return '30-45';
+  if(k.includes('45')||k.includes('60')||k.includes('hour')) return '45+';
+  return ''; }
+function prepLabel(s){ return PREP_LABELS[normPrep(s)]||''; }
 function tagsHtml(m){
   const t=[]; const lbl={veg:'Vegetarian',poultry:'Poultry',meat:'Beef',fish:'Fish'}[m.type]||m.type;
   const cls={veg:'veg',poultry:'meat',meat:'meat',fish:'fish'}[m.type]||'';
   t.push(`<span class="tag ${cls}">${lbl}</span>`);
+  const pl=prepLabel(m.prep); if(pl) t.push(`<span class="tag">⏱ ${pl}</span>`);
   if(m.healthy) t.push(`<span class="tag healthy">Healthy</span>`);
   t.push(m.dairy?`<span class="tag dairy">Light dairy</span>`:`<span class="tag">Non-dairy</span>`);
   return `<div class="tags">${t.join('')}</div>`;
@@ -672,6 +704,8 @@ function mealMatchesFilters(m){
   const dairyOpts=[]; if(activeFilters.has('nondairy')) dairyOpts.push(false); if(activeFilters.has('dairy')) dairyOpts.push(true);
   if(dairyOpts.length && !dairyOpts.includes(!!m.dairy)) return false;
   if(activeFilters.has('healthy') && !m.healthy) return false;
+  const preps=['u15','15-30','30-45','45+'].filter(p=>activeFilters.has(p));
+  if(preps.length && !preps.includes(normPrep(m.prep))) return false;
   return true;
 }
 function sortMeals(arr){
@@ -948,6 +982,7 @@ document.addEventListener('click', e=>{
   if(t.id==='btnPropose') proposePlan();
   if(t.id==='btnApprove') approvePlan();
   if(t.id==='btnAddDinners') openAddDinners();
+  if(t.dataset.addtab) setAddTab(t.dataset.addtab);
   if(t.id==='btnGenIdeas' || t.id==='btnGenRefresh') generateIdeas();
   if(t.dataset.gentype){ const k=t.dataset.gentype; genCriteria.types.has(k)?genCriteria.types.delete(k):genCriteria.types.add(k); t.classList.toggle('on'); }
   if(t.dataset.genprep){ genCriteria.prep=t.dataset.genprep; document.querySelectorAll('#genPrep .fchip').forEach(c=>c.classList.toggle('on', c===t)); }
@@ -973,7 +1008,6 @@ document.addEventListener('change', e=>{ const t=e.target;
 });
 $('btnSettings').onclick=openSettings;
 $('btnWho').onclick=openWho;
-$('btnAddMeal').onclick=openAddMeal;
 $('btnAiIngredients').onclick=aiIngredientsFromSteps;
 $('btnAiRecipe').onclick=aiRecipeFromIngredients;
 $('btnSaveMeal').onclick=saveMeal;
@@ -1002,7 +1036,7 @@ async function ensureSeeded(){
   const snap=await getDocs(collection(db,'meals'));
   if(snap.empty){
     const b=writeBatch(db);
-    SEED_MEALS.forEach((m,i)=> b.set(doc(collection(db,'meals')), {...m, recipe:RECIPES[m.name]||'', ratings:{}, createdAt:1000+i}));
+    SEED_MEALS.forEach((m,i)=> b.set(doc(collection(db,'meals')), {...m, recipe:RECIPES[m.name]||'', ratings:{}, createdAt:1000+i, prep:PREP_SEED[m.name]||''}));
     b.set(doc(db,'app','config'), config, {merge:true});
     await b.commit();
   }
@@ -1015,6 +1049,7 @@ async function backfillRecipes(){
     const upd={};
     if((!m.recipe || !m.recipe.trim()) && RECIPES[m.name]) upd.recipe=RECIPES[m.name];
     if(m.createdAt===undefined) upd.createdAt = (m.name in SEED_INDEX) ? 1000+SEED_INDEX[m.name] : 2000;
+    if((m.prep===undefined||m.prep==='') && PREP_SEED[m.name]) upd.prep=PREP_SEED[m.name];
     if(Object.keys(upd).length){ b.update(doc(db,'meals',m.id), upd); n++; }
   });
   if(n){ try{ await b.commit(); }catch(e){} }
