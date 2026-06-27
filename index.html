@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Family Dinner Planner</title>
+<style>
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:#f6f7f4; color:#1f2421; line-height:1.45; }
+.wrap { max-width:880px; margin:0 auto; padding:20px 18px 90px; }
+header.app { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:6px; }
+h1 { font-size:1.5rem; margin:0; }
+.sub { color:#5c6b62; font-size:.9rem; margin:2px 0 18px; }
+.btn { border:none; border-radius:10px; padding:10px 16px; font-size:.95rem; font-weight:600; cursor:pointer; background:#2f7d4f; color:#fff; transition:filter .12s ease; }
+.btn:hover{ filter:brightness(1.05);} .btn:active{ filter:brightness(.95);} .btn:disabled{ opacity:.5; cursor:default;}
+.btn.secondary{ background:#e7ece8; color:#28352e;} .btn.ghost{ background:transparent; color:#2f7d4f; padding:6px 10px;} .btn.small{ padding:6px 11px; font-size:.85rem;}
+.row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
+.card{ background:#fff; border:1px solid #e4e8e4; border-radius:14px; padding:16px 18px; margin-bottom:14px; box-shadow:0 1px 2px rgba(0,0,0,.03);}
+.meal-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
+.meal-name{ font-size:1.12rem; font-weight:700; margin:0 0 2px;}
+.meal-desc{ color:#4c5a51; font-size:.92rem; margin:0 0 8px;}
+.tags{ display:flex; gap:6px; flex-wrap:wrap; margin:4px 0 10px;}
+.tag{ font-size:.72rem; font-weight:600; padding:3px 9px; border-radius:999px; background:#eef3ef; color:#3a5a47;}
+.tag.veg{ background:#e6f4ea; color:#256b3c;} .tag.fish{ background:#e7f0f7; color:#2a5a7a;} .tag.meat{ background:#f7ede7; color:#8a4a2a;}
+.tag.dairy{ background:#fbf3e2; color:#8a6a1a;} .tag.healthy{ background:#eaf6ea; color:#2f7d4f;}
+.ingredients{ font-size:.88rem; color:#44524a; margin:4px 0 0;}
+.ingredients summary{ cursor:pointer; font-weight:600; color:#2f7d4f;}
+.ingredients ul{ margin:8px 0 0; padding-left:20px;}
+.ratings{ margin-top:12px; border-top:1px dashed #e0e5e0; padding-top:10px;}
+.rate-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:3px 0;}
+.rate-name{ font-size:.9rem; min-width:90px;}
+.stars{ display:inline-flex; gap:2px;}
+.star{ font-size:1.25rem; cursor:pointer; color:#d6dad6; line-height:1; user-select:none;}
+.star.on{ color:#f0a92e;}
+.avg{ font-size:.82rem; color:#6a786f;}
+.muted{ color:#8a978d;}
+.list-item{ display:flex; align-items:center; gap:10px; padding:5px 0; border-bottom:1px solid #f0f2f0;}
+.list-item label{ flex:1; font-size:.92rem;}
+.section-title{ font-size:1.05rem; font-weight:700; margin:26px 0 10px;}
+input[type=text],input[type=password]{ font-size:.92rem; padding:7px 9px; border:1px solid #ccd4cd; border-radius:8px;}
+.lib-row{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid #f0f2f0;}
+.lib-row .nm{ font-size:.92rem;}
+.modal-bg{ position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; padding:16px; z-index:50;}
+.modal-bg.show{ display:flex;}
+.modal{ background:#fff; border-radius:14px; padding:20px; max-width:520px; width:100%; max-height:86vh; overflow:auto;}
+.modal h2{ margin:0 0 12px; font-size:1.15rem;}
+.field{ margin-bottom:10px;} .field label{ display:block; font-size:.82rem; font-weight:600; margin-bottom:4px; color:#3a4842;} .field input,.field select,.field textarea{ width:100%;}
+.banner{ background:#eef6f0; border:1px solid #cfe6d8; color:#245c3c; padding:10px 14px; border-radius:10px; font-size:.9rem; margin-bottom:14px;}
+.banner.warn{ background:#fdf4e7; border-color:#f0dcb8; color:#7a5a18;}
+.toast{ position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:#28352e; color:#fff; padding:11px 18px; border-radius:10px; font-size:.9rem; opacity:0; transition:opacity .2s; z-index:60;}
+.toast.show{ opacity:1;}
+hr.soft{ border:none; border-top:1px solid #e4e8e4; margin:22px 0;}
+.flex-grow{ flex:1;}
+/* Auth + status */
+#authOverlay{ position:fixed; inset:0; background:#f6f7f4; display:flex; align-items:center; justify-content:center; padding:18px; z-index:100;}
+#authCard{ background:#fff; border:1px solid #e4e8e4; border-radius:16px; padding:28px 26px; max-width:380px; width:100%; box-shadow:0 4px 18px rgba(0,0,0,.06); text-align:center;}
+#authCard h1{ font-size:1.35rem; margin:6px 0 4px;}
+#authCard p{ color:#5c6b62; font-size:.9rem; margin:0 0 18px;}
+#authCard input{ width:100%; margin-bottom:12px; font-size:1rem; padding:11px;}
+#authErr{ color:#a23b2b; font-size:.85rem; min-height:18px; margin-top:6px;}
+.dot{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px;}
+.dot.ok{ background:#2f7d4f;} .dot.off{ background:#c2492e;}
+#syncBadge{ font-size:.78rem; color:#6a786f;}
+.config-warn{ background:#fdecec; border:1px solid #f3c4c4; color:#8a2b2b; padding:14px 16px; border-radius:12px; margin-bottom:16px; font-size:.9rem;}
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="authOverlay">
+  <div id="authCard">
+    <div style="font-size:2.2rem;">🍽️</div>
+    <h1>Family Dinner Planner</h1>
+    <p>Enter the family password to continue. You'll only need to do this once on this device.</p>
+    <input type="password" id="authPass" placeholder="Family password" autocomplete="current-password" />
+    <button class="btn" style="width:100%;" id="authBtn">Unlock</button>
+    <div id="authErr"></div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div class="wrap" id="appWrap" style="display:none;">
+  <header class="app">
+    <h1>🍽️ Family Dinner Planner</h1>
+    <div class="row">
+      <span id="syncBadge"><span class="dot off"></span>connecting…</span>
+      <button class="btn secondary small" id="btnSettings">⚙️ Settings</button>
+      <button class="btn secondary small" id="btnAddMeal">＋ Add meal</button>
+    </div>
+  </header>
+  <p class="sub">Proposes dinners weighted by your family's ratings. Everyone's ratings sync live across devices.</p>
+
+  <div class="banner">Higher-rated meals show up more often; recently-eaten meals are held back for variety. Rate each dinner after you eat it so suggestions keep improving.</div>
+
+  <div class="row" style="margin-bottom:16px;">
+    <button class="btn" id="btnPropose">🎲 Propose <span id="batchLabel">3</span> dinners</button>
+    <button class="btn secondary" id="btnApprove" style="display:none;">✓ Approve &amp; build shopping list</button>
+  </div>
+
+  <div id="planArea"></div>
+  <div id="shoppingArea"></div>
+
+  <div class="section-title">📚 Meal library &amp; ratings</div>
+  <div id="libraryArea"></div>
+
+  <div style="margin-top:28px; text-align:center;">
+    <button class="btn ghost small" id="btnSignout" style="color:#8a978d;">Sign out on this device</button>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div class="modal-bg" id="settingsModal">
+  <div class="modal">
+    <h2>Settings</h2>
+    <div class="field"><label>Dinners per plan</label><input type="text" id="setBatch" inputmode="numeric" /></div>
+    <p style="font-size:.82rem;font-weight:600;margin:14px 0 6px;color:#3a4842;">Family members (who can rate)</p>
+    <div id="ratersEdit"></div>
+    <button class="btn ghost small" id="btnAddRater">＋ Add person</button>
+    <div class="row" style="margin-top:18px;justify-content:flex-end;">
+      <button class="btn secondary" data-close="settingsModal">Cancel</button>
+      <button class="btn" id="btnSaveSettings">Save</button>
+    </div>
+    <hr class="soft" style="margin:20px 0 14px;">
+    <button class="btn ghost small" style="color:#a23b2b;" id="btnResetRatings">Reset all ratings &amp; history</button>
+  </div>
+</div>
+
+<!-- Add meal modal -->
+<div class="modal-bg" id="addMealModal">
+  <div class="modal">
+    <h2>Add a meal</h2>
+    <div class="field"><label>Meal name</label><input type="text" id="amName" placeholder="e.g. Veggie Stir-Fry"></div>
+    <div class="field"><label>Short description</label><input type="text" id="amDesc" placeholder="e.g. Tofu and crisp veggies over rice"></div>
+    <div class="field"><label>Protein type</label>
+      <select id="amType" style="padding:7px 9px;border:1px solid #ccd4cd;border-radius:8px;font-size:.92rem;">
+        <option value="veg">Vegetarian</option><option value="poultry">Poultry</option>
+        <option value="meat">Meat (beef)</option><option value="fish">Fish</option>
+      </select>
+    </div>
+    <div class="field"><label>Ingredients (one per line — keep names simple for Instacart search)</label>
+      <textarea id="amIng" rows="7" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;" placeholder="firm tofu&#10;broccoli&#10;soy sauce&#10;jasmine rice"></textarea>
+    </div>
+    <div class="row" style="justify-content:flex-end;margin-top:6px;">
+      <button class="btn secondary" data-close="addMealModal">Cancel</button>
+      <button class="btn" id="btnSaveMeal">Save meal</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+/* ============================================================
+   1) CONFIGURATION  — replace the two blocks below (see SETUP.md)
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "AIzaSyBNeRlB5jeSo_uIDR2SEDdL4SLRbx4WZig",
+  authDomain: "family-meal-planning-f1ee1.firebaseapp.com",
+  databaseURL: "https://family-meal-planning-f1ee1-default-rtdb.firebaseio.com",
+  projectId: "family-meal-planning-f1ee1",
+  storageBucket: "family-meal-planning-f1ee1.firebasestorage.app",
+  messagingSenderId: "246329491304",
+  appId: "1:246329491304:web:808b311911fede2d2f60dd",
+};
+// The shared family account you create in Firebase Auth (email/password).
+// Family members only ever type the PASSWORD; this email is fixed.
+const FAMILY_EMAIL = "dinners@medw.in";
+/* ============================================================ */
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, setPersistence, browserLocalPersistence, signInWithEmailAndPassword,
+         onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, collection, doc, onSnapshot, setDoc, getDocs, getDoc,
+         updateDoc, addDoc, deleteDoc, deleteField, writeBatch }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const NOT_CONFIGURED = firebaseConfig.apiKey.startsWith("REPLACE");
+let app, auth, db;
+if (!NOT_CONFIGURED) {
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+}
+
+/* ---------------- Seed library (Reform-kosher, non-dairy priority, healthy) ---------------- */
+const SEED_MEALS = [
+  { name:"Sheet-Pan Lemon Herb Chicken & Veggies", type:"poultry", dairy:false, healthy:true, desc:"Roasted chicken thighs with broccoli and carrots.", ing:["chicken thighs","broccoli","carrots","olive oil","lemon","garlic","rosemary"] },
+  { name:"Teriyaki Salmon Bowls", type:"fish", dairy:false, healthy:true, desc:"Glazed salmon over rice with steamed broccoli.", ing:["salmon fillet","jasmine rice","broccoli","soy sauce","honey","fresh ginger","sesame seeds"] },
+  { name:"Turkey Taco Night", type:"poultry", dairy:false, healthy:true, desc:"Seasoned ground turkey tacos with all the fixings.", ing:["ground turkey","taco seasoning","corn tortillas","romaine lettuce","tomato","avocado","black beans"] },
+  { name:"Veggie & Tofu Stir-Fry", type:"veg", dairy:false, healthy:true, desc:"Crisp tofu and vegetables over rice.", ing:["firm tofu","stir fry vegetables","soy sauce","garlic","fresh ginger","jasmine rice"] },
+  { name:"Mediterranean Chicken Bowls", type:"poultry", dairy:false, healthy:true, desc:"Grilled chicken, quinoa, cucumber and hummus.", ing:["chicken breast","quinoa","cucumber","tomato","hummus","kalamata olives"] },
+  { name:"Spaghetti with Turkey Meatballs", type:"poultry", dairy:false, healthy:true, desc:"Whole-wheat spaghetti in marinara with turkey meatballs.", ing:["whole wheat spaghetti","ground turkey","marinara sauce","garlic","yellow onion","breadcrumbs"] },
+  { name:"Black Bean & Veggie Quesadillas", type:"veg", dairy:true, healthy:true, desc:"Crispy quesadillas with beans, peppers and corn.", ing:["flour tortillas","black beans","bell pepper","corn","shredded cheese","salsa"] },
+  { name:"Honey Garlic Chicken Thighs", type:"poultry", dairy:false, healthy:true, desc:"Sticky-sweet chicken with rice and green beans.", ing:["chicken thighs","honey","garlic","soy sauce","jasmine rice","green beans"] },
+  { name:"Beef & Broccoli", type:"meat", dairy:false, healthy:true, desc:"Tender beef and broccoli in savory sauce over rice.", ing:["beef strips","broccoli","soy sauce","garlic","fresh ginger","jasmine rice","cornstarch"] },
+  { name:"Baked Falafel Pita Bowls", type:"veg", dairy:false, healthy:true, desc:"Crispy falafel with tahini, cucumber and tomato.", ing:["falafel mix","pita bread","tahini","cucumber","tomato","parsley","lemon"] },
+  { name:"Lentil Soup with Crusty Bread", type:"veg", dairy:false, healthy:true, desc:"Hearty lentil and vegetable soup.", ing:["brown lentils","carrots","celery","yellow onion","garlic","vegetable broth","crusty bread"] },
+  { name:"Grilled Chicken Fajitas", type:"poultry", dairy:false, healthy:true, desc:"Sizzling chicken with peppers and onions.", ing:["chicken breast","bell peppers","yellow onion","flour tortillas","lime","fajita seasoning"] },
+  { name:"Veggie Burgers & Sweet Potato Fries", type:"veg", dairy:false, healthy:true, desc:"Plant-based burgers with oven sweet potato fries.", ing:["veggie burger patties","hamburger buns","lettuce","tomato","sweet potatoes","ketchup"] },
+  { name:"Baked Cod with Roasted Potatoes", type:"fish", dairy:false, healthy:true, desc:"Flaky cod with lemon and roasted potatoes.", ing:["cod fillet","baby potatoes","olive oil","lemon","parsley","green beans","garlic"] },
+  { name:"Chicken Soup with Matzo Balls", type:"poultry", dairy:false, healthy:true, desc:"Classic comforting chicken soup.", ing:["chicken","carrots","celery","yellow onion","fresh dill","matzo ball mix"] },
+  { name:"Stuffed Bell Peppers", type:"poultry", dairy:false, healthy:true, desc:"Peppers stuffed with turkey, rice and tomato.", ing:["bell peppers","ground turkey","white rice","crushed tomatoes","yellow onion"] },
+  { name:"Pesto Pasta with Cherry Tomatoes", type:"veg", dairy:true, healthy:true, desc:"Bright pesto pasta with burst tomatoes.", ing:["pasta","basil pesto","cherry tomatoes","pine nuts","fresh basil"] },
+  { name:"Korean-Style Beef Bowls", type:"meat", dairy:false, healthy:true, desc:"Bulgogi-style beef over rice with cucumber.", ing:["ground beef","soy sauce","garlic","sesame oil","jasmine rice","cucumber","scallions"] },
+  { name:"Veggie Chili", type:"veg", dairy:false, healthy:true, desc:"Three-bean chili loaded with vegetables.", ing:["kidney beans","black beans","crushed tomatoes","yellow onion","bell pepper","corn","chili powder"] },
+  { name:"Baked Teriyaki Tofu & Rice", type:"veg", dairy:false, healthy:true, desc:"Sticky baked tofu with broccoli and rice.", ing:["firm tofu","teriyaki sauce","broccoli","jasmine rice","sesame seeds"] },
+  { name:"Chicken Shawarma Bowls", type:"poultry", dairy:false, healthy:true, desc:"Spiced chicken over rice with tahini drizzle.", ing:["chicken thighs","cumin","paprika","garlic","white rice","tomato","cucumber","tahini"] },
+  { name:"Salmon & Asparagus Sheet Pan", type:"fish", dairy:false, healthy:true, desc:"One-pan salmon with asparagus and potatoes.", ing:["salmon fillet","asparagus","baby potatoes","lemon","olive oil","garlic"] },
+  { name:"Margherita Flatbread & Salad", type:"veg", dairy:true, healthy:false, desc:"Tomato-basil flatbread with a green salad.", ing:["flatbread","tomato","fresh mozzarella","fresh basil","mixed greens","balsamic"] },
+  { name:"Soba Noodle Veggie Bowl", type:"veg", dairy:false, healthy:true, desc:"Chilled soba with edamame and crisp veg.", ing:["soba noodles","edamame","carrots","cucumber","soy sauce","sesame oil","scallions"] },
+  { name:"Mango Black Bean Tacos", type:"veg", dairy:false, healthy:true, desc:"Fresh tacos with black beans, mango and avocado.", ing:["corn tortillas","black beans","mango","avocado","lime","cabbage","cilantro"] },
+  { name:"Herb-Roasted Turkey Breast & Veggies", type:"poultry", dairy:false, healthy:true, desc:"Roast turkey breast with carrots and potatoes.", ing:["turkey breast","carrots","baby potatoes","green beans","olive oil","mixed herbs"] }
+];
+
+/* ---------------- In-memory state (synced from Firestore) ---------------- */
+let meals = [];                 // [{id, name, type, dairy, healthy, desc, ing, ratings:{rater:val}}]
+let config = { raters:["Adult 1","Adult 2","Kid 1","Kid 2","Kid 3"], batch:3 };
+let plan = [];                  // [mealId,...] (shared)
+let history = [];               // [{date, mealIds:[...]}]
+let shoppingState = [];
+
+/* ---------------- DOM helpers ---------------- */
+const $ = id => document.getElementById(id);
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+let toastTimer; function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),2600); }
+function setSync(ok){ $('syncBadge').innerHTML = ok ? '<span class="dot ok"></span>synced' : '<span class="dot off"></span>offline'; }
+
+/* ---------------- Rating + weighting ---------------- */
+function avgRating(m){ const v=Object.values(m.ratings||{}); return v.length? v.reduce((a,b)=>a+b,0)/v.length : null; }
+function plansSinceUsed(id){ for(let i=history.length-1,n=1;i>=0;i--,n++){ if((history[i].mealIds||[]).includes(id)) return n; } return 99; }
+function weightFor(m){
+  const a=avgRating(m); const r=(a===null)?3.5:a;
+  let w=Math.pow(r/3,2);
+  const since=plansSinceUsed(m.id);
+  const recency=Math.min(1,since/3);
+  w*=(0.15+0.85*recency);
+  return Math.max(0.02,w);
+}
+function weightedSample(pool,n){
+  const picks=[]; const items=pool.slice();
+  for(let k=0;k<n&&items.length;k++){
+    const ws=items.map(weightFor); const total=ws.reduce((a,b)=>a+b,0);
+    let r=Math.random()*total, idx=0;
+    for(let i=0;i<items.length;i++){ r-=ws[i]; if(r<=0){ idx=i; break; } }
+    picks.push(items[idx]); items.splice(idx,1);
+  }
+  return picks;
+}
+
+/* ---------------- Firestore writes ---------------- */
+async function writePlan(ids){ await setDoc(doc(db,'app','state'), { plan: ids }, { merge:true }); }
+async function writeConfig(c){ await setDoc(doc(db,'app','config'), c, { merge:true }); }
+async function proposePlan(){
+  if(meals.length < config.batch){ toast("Add more meals to the library first."); return; }
+  const picks = weightedSample(meals, config.batch);
+  await writePlan(picks.map(m=>m.id));
+}
+async function rerollOne(mealId){
+  const used=new Set(plan); const pool=meals.filter(m=>!used.has(m.id));
+  if(!pool.length){ toast("No other meals available to swap in."); return; }
+  const [pick]=weightedSample(pool,1);
+  const next=plan.slice(); next[next.indexOf(mealId)]=pick.id;
+  await writePlan(next);
+}
+async function setRating(mealId, raterEnc, val){
+  const rater=decodeURIComponent(raterEnc);
+  const m=meals.find(x=>x.id===mealId); const cur=(m&&m.ratings&&m.ratings[rater])||0;
+  const ref=doc(db,'meals',mealId);
+  if(cur===val) await updateDoc(ref,{['ratings.'+rater]: deleteField()});
+  else await updateDoc(ref,{['ratings.'+rater]: val});
+}
+async function approvePlan(){
+  if(!plan.length) return;
+  await addDoc(collection(db,'history'), { date:new Date().toISOString(), mealIds: plan.slice() });
+  buildShoppingList();
+  toast("Plan approved — shopping list ready below.");
+  window.scrollTo({ top:$('shoppingArea').offsetTop-20, behavior:'smooth' });
+}
+async function saveMeal(){
+  const name=$('amName').value.trim(); if(!name){ toast("Give the meal a name."); return; }
+  const ing=$('amIng').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(!ing.length){ toast("Add at least one ingredient."); return; }
+  await addDoc(collection(db,'meals'), { name, desc:$('amDesc').value.trim(), type:$('amType').value, dairy:false, healthy:true, ing, ratings:{} });
+  $('amName').value=''; $('amDesc').value=''; $('amIng').value='';
+  closeModal('addMealModal'); toast("Meal added.");
+}
+async function removeMeal(id){
+  if(!confirm('Remove this meal from the library?')) return;
+  await deleteDoc(doc(db,'meals',id));
+  if(plan.includes(id)) await writePlan(plan.filter(x=>x!==id));
+}
+async function resetRatings(){
+  if(!confirm('Erase all ratings and planning history? Meals are kept.')) return;
+  const batch=writeBatch(db);
+  meals.forEach(m=> batch.update(doc(db,'meals',m.id), { ratings:{} }));
+  const hist=await getDocs(collection(db,'history'));
+  hist.forEach(d=> batch.delete(d.ref));
+  await batch.commit();
+  closeModal('settingsModal'); toast("Ratings and history reset.");
+}
+
+/* ---------------- Rendering ---------------- */
+function tagsHtml(m){
+  const t=[]; const lbl={veg:'Vegetarian',poultry:'Poultry',meat:'Beef',fish:'Fish'}[m.type]||m.type;
+  const cls={veg:'veg',poultry:'meat',meat:'meat',fish:'fish'}[m.type]||'';
+  t.push(`<span class="tag ${cls}">${lbl}</span>`);
+  if(m.healthy) t.push(`<span class="tag healthy">Healthy</span>`);
+  t.push(m.dairy?`<span class="tag dairy">Light dairy</span>`:`<span class="tag">Non-dairy</span>`);
+  return `<div class="tags">${t.join('')}</div>`;
+}
+function starsHtml(m,rater){
+  const cur=(m.ratings&&m.ratings[rater])||0; let s='<span class="stars">';
+  for(let i=1;i<=5;i++) s+=`<span class="star ${i<=cur?'on':''}" data-rate="${m.id}|${encodeURIComponent(rater)}|${i}">★</span>`;
+  return s+'</span>';
+}
+function ratingBlock(m){
+  const rows=config.raters.map(r=>`<div class="rate-row"><span class="rate-name">${escapeHtml(r)}</span>${starsHtml(m,r)}</div>`).join('');
+  const a=avgRating(m); const n=Object.keys(m.ratings||{}).length;
+  const avgTxt=a===null?'not yet rated':`avg ${a.toFixed(1)}★ (${n})`;
+  return `<div class="ratings"><div class="rate-row"><strong style="font-size:.85rem;">Rate this dinner</strong><span class="avg">${avgTxt}</span></div>${rows}</div>`;
+}
+function mealCard(m,opts){ opts=opts||{};
+  return `<div class="card"><div class="meal-head"><div class="flex-grow">
+    <p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
+    ${opts.reroll?`<button class="btn ghost small" data-reroll="${m.id}">🔄 Swap</button>`:''}</div>
+    ${tagsHtml(m)}
+    <details class="ingredients"><summary>Ingredients (${m.ing.length})</summary><ul>${m.ing.map(i=>`<li>${escapeHtml(i)}</li>`).join('')}</ul></details>
+    ${ratingBlock(m)}</div>`;
+}
+function renderPlan(){
+  const area=$('planArea');
+  const pm=plan.map(id=>meals.find(m=>m.id===id)).filter(Boolean);
+  if(!pm.length){ area.innerHTML=''; $('btnApprove').style.display='none'; return; }
+  area.innerHTML=`<div class="section-title">This plan</div>`+pm.map(m=>mealCard(m,{reroll:true})).join('');
+  $('btnApprove').style.display='';
+}
+function renderLibrary(){
+  const area=$('libraryArea');
+  const sorted=meals.slice().sort((a,b)=>{ const av=avgRating(a),bv=avgRating(b); return (bv===null?-1:bv)-(av===null?-1:av); });
+  const rows=sorted.map(m=>{ const a=avgRating(m);
+    const at=a===null?'<span class="muted">—</span>':`${a.toFixed(1)}★ <span class="muted">(${Object.keys(m.ratings||{}).length})</span>`;
+    return `<div class="lib-row"><div class="nm">${escapeHtml(m.name)}</div><div class="row"><span class="avg">${at}</span><button class="btn ghost small" data-remove="${m.id}" title="Remove">✕</button></div></div>`;
+  }).join('');
+  area.innerHTML=`<div class="card"><div class="muted" style="font-size:.82rem;margin-bottom:6px;">${meals.length} dinners · sorted by rating</div>${rows}</div>`;
+}
+function renderAll(){ $('batchLabel').textContent=config.batch; renderPlan(); renderLibrary(); }
+
+/* ---------------- Shopping list + Instacart ---------------- */
+function consolidatedIngredients(){
+  const map=new Map();
+  plan.forEach(id=>{ const m=meals.find(x=>x.id===id); if(!m) return;
+    m.ing.forEach(raw=>{ const k=raw.trim().toLowerCase();
+      if(!map.has(k)) map.set(k,{name:raw.trim(),count:0,meals:[]});
+      const e=map.get(k); e.count++; e.meals.push(m.name); }); });
+  return [...map.values()].sort((a,b)=>a.name.localeCompare(b.name));
+}
+function buildShoppingList(){ shoppingState=consolidatedIngredients().map(i=>({...i,checked:true})); renderShopping(); }
+function renderShopping(){
+  const area=$('shoppingArea'); if(!shoppingState.length){ area.innerHTML=''; return; }
+  const rows=shoppingState.map((it,idx)=>`<div class="list-item"><input type="checkbox" data-item="${idx}" ${it.checked?'checked':''}><label>${escapeHtml(it.name)} ${it.count>1?`<span class="muted">×${it.count}</span>`:''} <span class="muted" style="font-size:.8rem;">— ${escapeHtml(it.meals.join(', '))}</span></label></div>`).join('');
+  const n=shoppingState.filter(i=>i.checked).length;
+  area.innerHTML=`<div class="section-title">🛒 Shopping list</div>
+    <div class="banner">Uncheck anything you already have. ${n} item(s) selected.</div>
+    <div class="card">${rows}</div>
+    <div class="row" style="margin-bottom:8px;">
+      <button class="btn" id="btnInstacart">🛒 Send ${n} items to Instacart</button>
+      <button class="btn secondary" id="btnCopy">📋 Copy list</button>
+    </div><div id="instacartResult"></div>`;
+}
+function copyList(){ navigator.clipboard.writeText(shoppingState.filter(i=>i.checked).map(i=>'• '+i.name).join('\n')).then(()=>toast("Shopping list copied.")); }
+async function sendToInstacart(){
+  const chosen=shoppingState.filter(i=>i.checked); if(!chosen.length){ toast("Nothing checked."); return; }
+  const res=$('instacartResult'); const queries=chosen.map(i=>({query:i.name,quantity:1}));
+  // Works automatically only when opened inside Cowork (Instacart connector present).
+  if(window.cowork && window.cowork.callMcpTool){
+    try{
+      const r=await window.cowork.callMcpTool('mcp__4356ac99-e750-4f57-8b96-f8ebcc97a0dd__cart',{quick_add_search_queries:queries});
+      let d={}; try{ d=r.structuredContent ?? JSON.parse(r.content[0].text);}catch(e){ d=r; }
+      const items=(d.artifacts&&d.artifacts.cart&&d.artifacts.cart.items)||[];
+      res.innerHTML=`<div class="banner">✓ Sent to Instacart. ${items.length} item(s) added to your cart — review and check out there.</div>`;
+      toast("Items sent to Instacart."); return;
+    }catch(e){ /* fall through */ }
+  }
+  copyList();
+  res.innerHTML=`<div class="banner warn">Your list is copied. Open Instacart, then paste it into the search to add items, or have the account owner push it from the Cowork app. <a href="https://www.instacart.com/store" target="_blank" rel="noopener">Open Instacart →</a></div>`;
+}
+
+/* ---------------- Settings UI ---------------- */
+let raterDraft=[];
+function openSettings(){ $('setBatch').value=config.batch; raterDraft=config.raters.slice(); renderRatersEdit(); $('settingsModal').classList.add('show'); }
+function renderRatersEdit(){
+  $('ratersEdit').innerHTML=raterDraft.map((r,i)=>`<div class="row" style="margin-bottom:6px;"><input type="text" value="${escapeHtml(r)}" data-rdraft="${i}" class="flex-grow" style="flex:1;"><button class="btn ghost small" style="color:#a23b2b;" data-rdel="${i}">✕</button></div>`).join('');
+}
+async function saveSettings(){
+  const b=parseInt($('setBatch').value,10);
+  const cleaned=raterDraft.map(s=>s.trim()).filter(Boolean);
+  const next={...config};
+  if(b>=1&&b<=14) next.batch=b;
+  if(cleaned.length) next.raters=cleaned;
+  await writeConfig(next);
+  closeModal('settingsModal'); toast("Settings saved.");
+}
+function closeModal(id){ $(id).classList.remove('show'); }
+
+/* ---------------- Event wiring (delegation) ---------------- */
+document.addEventListener('click', e=>{
+  const t=e.target;
+  if(t.dataset.close) closeModal(t.dataset.close);
+  if(t.dataset.reroll) rerollOne(t.dataset.reroll);
+  if(t.dataset.remove) removeMeal(t.dataset.remove);
+  if(t.dataset.rate){ const [id,rt,v]=t.dataset.rate.split('|'); setRating(id,rt,+v); }
+  if(t.dataset.rdel!==undefined && t.dataset.rdel!==''){ raterDraft.splice(+t.dataset.rdel,1); renderRatersEdit(); }
+  if(t.id==='btnInstacart') sendToInstacart();
+  if(t.id==='btnCopy') copyList();
+});
+document.addEventListener('input', e=>{
+  const t=e.target;
+  if(t.dataset.rdraft!==undefined) raterDraft[+t.dataset.rdraft]=t.value;
+  if(t.dataset.item!==undefined){ shoppingState[+t.dataset.item].checked=t.checked; }
+});
+document.addEventListener('change', e=>{ if(e.target.dataset.item!==undefined) renderShopping(); });
+$('btnPropose').onclick=proposePlan;
+$('btnApprove').onclick=approvePlan;
+$('btnSettings').onclick=openSettings;
+$('btnAddMeal').onclick=()=>$('addMealModal').classList.add('show');
+$('btnSaveMeal').onclick=saveMeal;
+$('btnAddRater').onclick=()=>{ raterDraft.push("New person"); renderRatersEdit(); };
+$('btnSaveSettings').onclick=saveSettings;
+$('btnResetRatings').onclick=resetRatings;
+$('btnSignout').onclick=()=>{ if(auth) signOut(auth); };
+[...document.querySelectorAll('.modal-bg')].forEach(bg=>bg.addEventListener('click',e=>{ if(e.target===bg) bg.classList.remove('show'); }));
+
+/* ---------------- Auth + live data ---------------- */
+async function doLogin(){
+  const pass=$('authPass').value; if(!pass){ return; }
+  $('authErr').textContent=''; $('authBtn').disabled=true; $('authBtn').textContent='Unlocking…';
+  try{
+    await setPersistence(auth, browserLocalPersistence);
+    await signInWithEmailAndPassword(auth, FAMILY_EMAIL, pass);
+  }catch(err){
+    $('authErr').textContent = (err.code==='auth/invalid-credential'||err.code==='auth/wrong-password')
+      ? 'Incorrect password.' : ('Sign-in error: '+(err.code||err.message));
+    $('authBtn').disabled=false; $('authBtn').textContent='Unlock';
+  }
+}
+async function ensureSeeded(){
+  const snap=await getDocs(collection(db,'meals'));
+  if(snap.empty){
+    const b=writeBatch(db);
+    SEED_MEALS.forEach(m=> b.set(doc(collection(db,'meals')), {...m, ratings:{}}));
+    b.set(doc(db,'app','config'), config, {merge:true});
+    await b.commit();
+  }
+}
+function startListeners(){
+  onSnapshot(collection(db,'meals'), s=>{ meals=s.docs.map(d=>({id:d.id, ...d.data(), ratings:d.data().ratings||{}})); setSync(true); renderAll(); }, ()=>setSync(false));
+  onSnapshot(doc(db,'app','config'), s=>{ if(s.exists()){ config={...config, ...s.data()}; renderAll(); } });
+  onSnapshot(doc(db,'app','state'), s=>{ plan=(s.exists()&&s.data().plan)||[]; renderPlan(); });
+  onSnapshot(collection(db,'history'), s=>{ history=s.docs.map(d=>d.data()).sort((a,b)=>(a.date||'').localeCompare(b.date||'')); });
+}
+
+/* ---------------- Boot ---------------- */
+if(NOT_CONFIGURED){
+  $('authOverlay').style.display='none'; $('appWrap').style.display='';
+  $('appWrap').insertAdjacentHTML('afterbegin','<div class="config-warn"><strong>Not configured yet.</strong> Open this file and fill in <code>firebaseConfig</code> and <code>FAMILY_EMAIL</code> at the top of the script (see SETUP.md), then redeploy.</div>');
+}else{
+  $('authBtn').onclick=doLogin;
+  $('authPass').addEventListener('keydown',e=>{ if(e.key==='Enter') doLogin(); });
+  onAuthStateChanged(auth, async user=>{
+    if(user){
+      $('authOverlay').style.display='none'; $('appWrap').style.display='';
+      try{ await ensureSeeded(); }catch(e){}
+      startListeners();
+    }else{
+      $('authOverlay').style.display='flex'; $('appWrap').style.display='none';
+    }
+  });
+}
+</script>
+</body>
+</html>
