@@ -137,12 +137,7 @@ details.prefs[open]>summary{ margin-bottom:4px;}
   </div>
 
   <div id="tabPlan">
-    <div id="favArea"></div>
     <div class="banner">Higher-rated meals show up more often; 👍 meals from the Library are favored, 👎 meals less, and recently-eaten meals are held back for variety.</div>
-    <div class="row" style="margin-bottom:16px;">
-      <button class="btn" id="btnPropose">🎲 Propose <span id="batchLabel">3</span> dinners</button>
-      <button class="btn secondary" id="btnApprove" style="display:none;">✓ Approve &amp; build shopping list</button>
-    </div>
     <div id="planArea"></div>
     <div id="calendarArea"></div>
     <div id="shoppingArea"></div>
@@ -150,6 +145,7 @@ details.prefs[open]>summary{ margin-bottom:4px;}
 
   <div id="tabLibrary" style="display:none;">
     <div class="banner">Browse all meals. Set 👍 / 👎 per person to say what you'd like to try <em>before</em> cooking — this shapes what gets proposed.</div>
+    <div id="favArea"></div>
     <div id="libraryArea"></div>
   </div>
 
@@ -558,8 +554,12 @@ function madeBtn(m){ return `<button class="btn ghost small" data-made="${m.id}"
 function renderPlan(){
   const area=$('planArea');
   const pm=plan.map(id=>meals.find(m=>m.id===id)).filter(Boolean);
-  if(!pm.length){ area.innerHTML='<div class="empty-hint">No plan yet — tap “Propose dinners”.</div>'; $('btnApprove').style.display='none'; return; }
-  area.innerHTML=`<div class="section-title">This plan</div>`+pm.map(m=>`<div class="card">
+  if(!pm.length){
+    area.innerHTML=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">This plan <button class="btn ghost small" id="btnPropose">🔄 Suggest</button></div><div class="empty-hint">No plan yet — tap 🔄 Suggest to pick dinners.</div>`;
+    return;
+  }
+  area.innerHTML=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">This plan <button class="btn ghost small" id="btnPropose" title="Swap all">🔄 Swap all</button></div>`
+    +pm.map(m=>`<div class="card">
     <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(m.name)}</p><p class="meal-desc">${escapeHtml(m.desc||'')}</p></div>
     <button class="btn ghost small" data-reroll="${m.id}">🔄 Swap</button></div>
     ${tagsHtml(m)}${ingredientsHtml(m)}${recipeHtml(m)}
@@ -567,8 +567,8 @@ function renderPlan(){
       <label style="font-size:.86rem;color:#4c5a51;">📅 Day: <select class="day-select" data-assign="${m.id}">${dayOptions(assign[m.id]||'')}</select></label>
       ${madeBtn(m)}
     </div>
-    <div class="rate-row">${summaryLine(m)}</div></div>`).join('');
-  $('btnApprove').style.display='';
+    <div class="rate-row">${summaryLine(m)}</div></div>`).join('')
+    +`<div class="row" style="margin-top:6px;"><button class="btn" id="btnApprove">✓ Approve &amp; build shopping list</button></div>`;
 }
 function mealMatchesFilters(m){
   const types=['veg','poultry','meat','fish'].filter(t=>activeFilters.has(t));
@@ -736,7 +736,7 @@ function setTab(t){ activeTab=t;
   ['plan','library','cooked','ratings'].forEach(x=>{ const el=$('tab'+cap(x)); if(el) el.style.display=(x===t)?'':'none'; });
   [...document.querySelectorAll('.tab-btn')].forEach(b=>b.classList.toggle('active', b.dataset.tab===t));
 }
-function renderAll(){ $('batchLabel').textContent=config.batch; updateWhoChip(); renderFavorites(); renderPlan(); renderLibrary(); renderCooked(); renderRatings(); maybePromptWho(); }
+function renderAll(){ updateWhoChip(); renderFavorites(); renderPlan(); renderLibrary(); renderCooked(); renderRatings(); maybePromptWho(); }
 
 /* ---------------- Shopping list + Instacart ---------------- */
 function consolidatedIngredients(){
@@ -830,6 +830,8 @@ document.addEventListener('click', e=>{
   if(t.dataset.rdel!==undefined && t.dataset.rdel!==''){ raterDraft.splice(+t.dataset.rdel,1); renderRatersEdit(); }
   if(t.id==='btnInstacart') sendToInstacart();
   if(t.id==='btnCopy') copyList();
+  if(t.id==='btnPropose') proposePlan();
+  if(t.id==='btnApprove') approvePlan();
 });
 document.addEventListener('toggle', e=>{ const d=e.target; if(!d.dataset) return;
   if(d.dataset.libid){ if(d.open) openLib.add(d.dataset.libid); else openLib.delete(d.dataset.libid); }
@@ -845,8 +847,6 @@ document.addEventListener('change', e=>{ const t=e.target;
   if(t.dataset.assign!==undefined) writeAssign(t.dataset.assign, t.value);
   if(t.dataset.libsort!==undefined){ librarySort=t.value; localStorage.setItem('fdp_libsort',librarySort); renderLibrary(); }
 });
-$('btnPropose').onclick=proposePlan;
-$('btnApprove').onclick=approvePlan;
 $('btnSettings').onclick=openSettings;
 $('btnWho').onclick=openWho;
 $('btnAddMeal').onclick=openAddMeal;
