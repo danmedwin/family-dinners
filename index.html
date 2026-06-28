@@ -1069,7 +1069,8 @@ function renderShopping(){
   const area=$('shoppingArea'); if(!shoppingState.length){ area.innerHTML=''; return; }
   const rows=shoppingState.map((it,idx)=>`<div class="list-item"><input type="checkbox" data-item="${idx}" ${it.checked?'checked':''}><label>${escapeHtml(it.name)} ${it.count>1?`<span class="muted">×${it.count}</span>`:''} <span class="muted" style="font-size:.8rem;">— ${escapeHtml(it.meals.join(', '))}</span></label></div>`).join('');
   const n=shoppingState.filter(i=>i.checked).length;
-  area.innerHTML=`<div class="section-title">🛒 Shopping list</div>
+  area.innerHTML=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">🛒 Shopping list
+      <span><button class="btn ghost small" id="btnSelAll">Select all</button><button class="btn ghost small" id="btnClearAll">Clear all</button></span></div>
     <div class="banner">Uncheck anything you already have. ${n} item(s) selected.</div>
     <div class="card">${rows}</div>
     <div class="row" style="margin-bottom:8px;">
@@ -1147,6 +1148,8 @@ document.addEventListener('click', e=>{
   if(t.dataset.rdel!==undefined && t.dataset.rdel!==''){ raterDraft.splice(+t.dataset.rdel,1); renderRatersEdit(); }
   if(t.id==='btnInstacart') sendToInstacart();
   if(t.id==='btnCopy') copyList();
+  if(t.id==='btnClearAll'){ shoppingState.forEach(i=>i.checked=false); renderShopping(); }
+  if(t.id==='btnSelAll'){ shoppingState.forEach(i=>i.checked=true); renderShopping(); }
   if(t.id==='btnPropose') proposePlan();
   if(t.id==='btnApprove') approvePlan();
   if(t.id==='btnAddDinners') openAddDinners();
