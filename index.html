@@ -297,6 +297,19 @@ details.prefs[open]>summary{ margin-bottom:4px;}
   </div>
 </div>
 
+<!-- Choice dialog (two options) -->
+<div class="modal-bg" id="choiceModal">
+  <div class="modal" style="max-width:420px;position:relative;">
+    <button class="modal-x" id="choiceX" aria-label="Close">✕</button>
+    <h2 id="choiceTitle" style="font-size:1.1rem;">Choose</h2>
+    <p id="choiceMsg" class="muted" style="font-size:.9rem;margin:0 0 16px;"></p>
+    <div class="row" style="gap:8px;flex-direction:column;">
+      <button class="btn" id="choiceA"></button>
+      <button class="btn secondary" id="choiceB"></button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script type="module">
@@ -482,10 +495,24 @@ async function dedupeMeals(){
   try{ await b.commit(); toast('Removed '+count+' duplicate(s).'); }catch(e){ toast('Cleanup failed — try again.'); }
 }
 async function writeConfig(c){ await setDoc(doc(db,'app','config'), c, { merge:true }); }
+async function writePlanReset(ids){ assign={}; await setDoc(doc(db,'app','state'), { plan:ids, assign:{} }); }
 async function proposePlan(){
   if(meals.length < config.batch){ toast("Add more meals to the library first."); return; }
-  const picks = weightedSample(meals, config.batch);
-  await writePlan(picks.map(m=>m.id));
+  const dated = plan.filter(id=>assign[id]);
+  if(dated.length){
+    const c = await askChoice('Swap all?', 'Some meals in the plan have assigned days.', 'Keep dated meals, swap the rest', 'Reset dates & swap all');
+    if(c===null) return;
+    if(c==='a'){
+      const used=new Set(dated); const pool=meals.filter(m=>!used.has(m.id));
+      const need=Math.max(0, config.batch - dated.length);
+      const picks=weightedSample(pool, need);
+      await writePlan([...dated, ...picks.map(m=>m.id)]);
+      return;
+    }
+    await writePlanReset(weightedSample(meals, config.batch).map(m=>m.id));
+    return;
+  }
+  await writePlan(weightedSample(meals, config.batch).map(m=>m.id));
 }
 async function rerollOne(mealId){
   const used=new Set(plan); const pool=meals.filter(m=>!used.has(m.id));
@@ -580,6 +607,15 @@ async function aiRecipeFromIngredients(){
   }catch(e){ toast('AI unavailable — write the recipe manually.'); }
   btn.disabled=false; btn.textContent='✨ Draft recipe from ingredients';
 }
+let choiceResolve=null;
+function askChoice(title, msg, optA, optB){
+  return new Promise(res=>{ choiceResolve=res;
+    $('choiceTitle').textContent=title; $('choiceMsg').textContent=msg;
+    $('choiceA').textContent=optA; $('choiceB').textContent=optB;
+    $('choiceModal').classList.add('show');
+  });
+}
+function resolveChoice(v){ closeModal('choiceModal'); const r=choiceResolve; choiceResolve=null; if(r) r(v); }
 function setAddTab(tab){
   $('addTabGen').style.display = tab==='gen' ? '' : 'none';
   $('addTabOwn').style.display = tab==='own' ? '' : 'none';
@@ -638,10 +674,24 @@ async function addIdea(i){
   await addDoc(collection(db,'meals'), { name:idea.name||'New dinner', desc:idea.desc||'', type, dairy:!!idea.dairy, healthy:idea.healthy!==false, ing:Array.isArray(idea.ing)?idea.ing.map(String):[], recipe:idea.recipe||'', prep:normPrep(idea.prep), ratings:{}, prefs:{}, createdAt:Date.now() });
   genAddedNames.add(idea.name); renderGenResults(); toast('Added to Library.');
 }
+function mealName(id){ const m=meals.find(x=>x.id===id); return m?m.name:'(removed)'; }
+function fmtDate(d){ const t=Date.parse(d); return isNaN(t)?d:new Date(t).toLocaleDateString(undefined,{weekday:'short',month:'numeric',day:'numeric'}); }
 async function approvePlan(){
   if(!plan.length) return;
   const assignedIds=plan.filter(id=>assign[id]);
-  if(!assignedIds.length){ buildCalendar(); toast('Assign a day to at least one dinner first.'); window.scrollTo({ top:$('calendarArea').offsetTop-20, behavior:'smooth' }); return; }
+  const undated=plan.filter(id=>!assign[id]);
+  if(!assignedIds.length){ buildCalendar(); alert('Assign a day to at least one dinner before approving.'); window.scrollTo({ top:$('calendarArea').offsetTop-20, behavior:'smooth' }); return; }
+  // same-day conflicts
+  const byDate={}; assignedIds.forEach(id=>{ (byDate[assign[id]]=byDate[assign[id]]||[]).push(id); });
+  const conflicts=Object.entries(byDate).filter(([d,ids])=>ids.length>1);
+  if(conflicts.length){
+    const lines=conflicts.map(([d,ids])=>'• '+fmtDate(d)+': '+ids.map(mealName).join(', ')).join('\n');
+    if(!confirm('Two meals are set for the same day:\n'+lines+'\n\nApprove anyway?')) return;
+  }
+  // undated meals get skipped
+  if(undated.length){
+    if(!confirm(undated.length+' meal(s) have no day and will be skipped:\n• '+undated.map(mealName).join('\n• ')+'\n\nContinue with the '+assignedIds.length+' dated meal(s)?')) return;
+  }
   await addDoc(collection(db,'history'), { date:new Date().toISOString(), mealIds: assignedIds.slice() });
   const b=writeBatch(db);
   assignedIds.forEach(id=>{ b.update(doc(db,'meals',id), { lastPlanned: assign[id] }); });
@@ -737,6 +787,7 @@ function renderPlan(){
       <label style="font-size:.86rem;color:#4c5a51;">📅 Day: <select class="day-select" data-assign="${m.id}">${dayOptions(assign[m.id]||'')}</select></label>
       ${madeBtn(m)}
     </div>
+    <div class="rate-row" style="gap:8px;"><span class="rate-name">${meValid()?escapeHtml(myName)+' (you)':'Your vote'}</span>${meValid()?thumbsInput(m,myName):`<button class="btn ghost small" data-setwho="1">Set who you are</button>`}</div>
     <div class="rate-row">${summaryLine(m)}</div></div>`).join('')
     +`<div class="row" style="margin-top:6px;"><button class="btn" id="btnApprove">✓ Approve &amp; build shopping list</button></div>`;
 }
@@ -1048,6 +1099,7 @@ document.addEventListener('click', e=>{
   if(t.dataset.addidea!==undefined) addIdea(+t.dataset.addidea);
   if(t.dataset.addplan) addToPlan(t.dataset.addplan);
   if(t.dataset.removeplan) removeFromPlan(t.dataset.removeplan);
+  if(t.dataset.setwho) openWho();
 });
 document.addEventListener('toggle', e=>{ const d=e.target; if(!d.dataset) return;
   if(d.dataset.libid){ if(d.open) openLib.add(d.dataset.libid); else openLib.delete(d.dataset.libid); }
@@ -1076,10 +1128,13 @@ $('btnAddRater').onclick=()=>{ raterDraft.push("New person"); renderRatersEdit()
 $('btnSaveSettings').onclick=saveSettings;
 $('btnResetRatings').onclick=resetRatings;
 $('btnDedupe').onclick=dedupeMeals;
+$('choiceA').onclick=()=>resolveChoice('a');
+$('choiceB').onclick=()=>resolveChoice('b');
+$('choiceX').onclick=()=>resolveChoice(null);
 $('btnSaveRecipe').onclick=saveRecipeFromModal;
 $('btnAiRevise').onclick=aiReviseRecipe;
 $('btnSignout').onclick=()=>{ if(auth) signOut(auth); };
-[...document.querySelectorAll('.modal-bg')].forEach(bg=>bg.addEventListener('click',e=>{ if(e.target===bg) bg.classList.remove('show'); }));
+[...document.querySelectorAll('.modal-bg')].forEach(bg=>bg.addEventListener('click',e=>{ if(e.target===bg){ bg.classList.remove('show'); if(bg.id==='choiceModal') resolveChoice(null); } }));
 
 /* ---------------- Auth + live data ---------------- */
 async function doLogin(){
