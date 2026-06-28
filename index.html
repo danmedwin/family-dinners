@@ -89,6 +89,8 @@ details.prefs[open]>summary{ margin-bottom:4px;}
 .ic-links{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;}
 .ic-link{ display:inline-block; background:#eef6f0; border:1px solid #cfe6d8; color:#1f6b3f; border-radius:999px; padding:6px 12px; font-size:.88rem; text-decoration:none; font-weight:600;}
 .ic-link:hover{ background:#e2efe7;}
+.ic-link.tapped{ background:#dfeee4; color:#6a786f; border-color:#cfe6d8;}
+.ic-link.tapped::before{ content:"✓ ";}
 .day-select{ font-size:.85rem; padding:6px 8px; border:1px solid #ccd4cd; border-radius:8px; background:#fff; color:#28352e;}
 .cooknotes{ margin-top:12px; border-top:1px dashed #e0e5e0; padding-top:10px;}
 .cooknote-input{ font-size:.9rem; padding:7px 9px; border:1px solid #ccd4cd; border-radius:8px;}
@@ -297,6 +299,26 @@ details.prefs[open]>summary{ margin-bottom:4px;}
   </div>
 </div>
 
+<!-- Ingredient editor modal -->
+<div class="modal-bg" id="ingModal">
+  <div class="modal" style="position:relative;">
+    <button class="modal-x" data-close="ingModal" aria-label="Close">✕</button>
+    <h2 style="font-size:1.15rem;">Edit ingredients</h2>
+    <p class="muted" id="ingHint" style="font-size:.85rem;margin:0 0 10px;"></p>
+    <div id="ingAiRow" class="row" style="display:none;gap:8px;margin-bottom:10px;">
+      <button class="btn secondary small" id="btnIngFromRecipe">✨ Suggest from recipe</button>
+      <button class="btn secondary small" id="btnIngCheck">🔍 Check vs recipe</button>
+    </div>
+    <div id="ingCheckResult"></div>
+    <div class="field"><label>Ingredients (one per line)</label>
+      <textarea id="ingText" rows="9" style="padding:8px 9px;border:1px solid #ccd4cd;border-radius:8px;font-family:inherit;font-size:.9rem;"></textarea></div>
+    <div class="row" style="justify-content:flex-end;gap:8px;">
+      <button class="btn secondary" data-close="ingModal">Cancel</button>
+      <button class="btn" id="btnSaveIng">Save ingredients</button>
+    </div>
+  </div>
+</div>
+
 <!-- Choice dialog (two options) -->
 <div class="modal-bg" id="choiceModal">
   <div class="modal" style="max-width:420px;position:relative;">
@@ -438,6 +460,7 @@ let plan = [];                  // [mealId,...] (shared)
 let assign = {};                // { mealId: 'YYYY-MM-DD' } day assignment (shared)
 let history = [];               // [{date, mealIds:[...]}]
 let shoppingState = [];
+let tappedItems = new Set();
 
 /* ---------------- DOM helpers ---------------- */
 const $ = id => document.getElementById(id);
@@ -578,6 +601,42 @@ async function saveRecipeFromModal(){
   if((m.recipe||'').trim() && (m.recipe||'')!==newText){ hist.unshift({ text:m.recipe, date:new Date().toISOString(), by }); }
   await updateDoc(doc(db,'meals',m.id), { recipe:newText, recipeHistory:hist, recipeUpdatedAt:new Date().toISOString(), recipeUpdatedBy:by });
   closeModal('recipeModal'); toast('Recipe updated.');
+}
+/* ---- Ingredient editor (plan/library cards) ---- */
+let ingEditId=null;
+function openIngEditor(id){ const m=meals.find(x=>x.id===id); if(!m) return; ingEditId=id;
+  $('ingText').value=(m.ing||[]).join('\n');
+  $('ingHint').textContent = m.recipe ? 'AI can suggest from, or cross-check against, the saved recipe.' : 'No recipe saved yet — AI helpers need a recipe.';
+  $('ingAiRow').style.display = RECIPE_AI_WORKER_URL ? '' : 'none';
+  $('ingCheckResult').innerHTML='';
+  $('ingModal').classList.add('show');
+}
+async function saveIngFromModal(){ const m=meals.find(x=>x.id===ingEditId); if(!m) return;
+  const ing=$('ingText').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  await updateDoc(doc(db,'meals',m.id), { ing });
+  closeModal('ingModal'); toast('Ingredients updated.');
+}
+async function aiIngFromRecipe(){ const m=meals.find(x=>x.id===ingEditId); if(!m) return;
+  if(!m.recipe){ toast('No recipe to read from.'); return; }
+  const btn=$('btnIngFromRecipe'); btn.disabled=true; btn.textContent='Thinking…';
+  try{ const r=await fetch(RECIPE_AI_WORKER_URL,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ task:'ingredients', dish:m.name, recipe:m.recipe }) });
+    if(!r.ok) throw 0; const d=await r.json(); const list=d.ingredients||[]; if(!list.length) throw 0;
+    $('ingText').value=list.join('\n'); toast('Suggested from recipe — review & Save.');
+  }catch(e){ toast('AI unavailable.'); }
+  btn.disabled=false; btn.textContent='✨ Suggest from recipe';
+}
+async function aiIngCheck(){ const m=meals.find(x=>x.id===ingEditId); if(!m) return;
+  const res=$('ingCheckResult');
+  if(!m.recipe){ res.innerHTML='<div class="banner warn">Add a recipe first to cross-check.</div>'; return; }
+  const ing=$('ingText').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  const btn=$('btnIngCheck'); btn.disabled=true; btn.textContent='Checking…';
+  try{ const r=await fetch(RECIPE_AI_WORKER_URL,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ task:'align', dish:m.name, recipe:m.recipe, ingredients:ing }) });
+    if(!r.ok) throw 0; const d=await r.json(); const issues=d.issues||[];
+    res.innerHTML = issues.length
+      ? `<div class="banner warn"><strong>Possible mismatches:</strong><ul style="margin:6px 0 0;padding-left:18px;">${issues.map(x=>`<li>${escapeHtml(String(x))}</li>`).join('')}</ul></div>`
+      : '<div class="banner">✓ Ingredients and recipe line up.</div>';
+  }catch(e){ res.innerHTML='<div class="banner warn">Couldn’t check right now.</div>'; }
+  btn.disabled=false; btn.textContent='🔍 Check vs recipe';
 }
 /* AI helpers in the Add-meal form (shown only when RECIPE_AI_WORKER_URL is set) */
 async function aiIngredientsFromSteps(){
@@ -765,7 +824,7 @@ function thumbsInput(m,rater){ const cur=(m.prefs&&m.prefs[rater])||'';
   return `<span class="thumbs"><span class="thumb ${cur==='up'?'up':''}" data-pref="${m.id}|${encodeURIComponent(rater)}|up" title="Sounds good">👍</span><span class="thumb ${cur==='down'?'down':''}" data-pref="${m.id}|${encodeURIComponent(rater)}|down" title="Not for me">👎</span></span>`; }
 function thumbDisp(v){ return v==='up'?'👍':v==='down'?'👎':'<span class="muted">–</span>'; }
 function starDisp(n){ return n?`<span class="stars-ro">${'★'.repeat(n)}${'☆'.repeat(5-n)}</span>`:'<span class="muted">–</span>'; }
-function ingredientsHtml(m){ return `<details class="ingredients"><summary>Ingredients (${m.ing.length})</summary><ul>${m.ing.map(i=>`<li>${escapeHtml(i)}</li>`).join('')}</ul></details>`; }
+function ingredientsHtml(m){ return `<details class="ingredients"><summary>Ingredients (${m.ing.length})</summary><ul>${m.ing.map(i=>`<li>${escapeHtml(i)}</li>`).join('')}</ul><button class="btn ghost small" data-editing="${m.id}" style="margin-top:6px;">✏️ Edit ingredients</button></details>`; }
 function madeBtn(m){ return `<button class="btn ghost small" data-made="${m.id}">${m.made?'✓ Made':'Mark as made'}</button>`; }
 
 function renderPlan(){
@@ -1005,7 +1064,7 @@ function consolidatedIngredients(){
       const e=map.get(k); e.count++; e.meals.push(m.name); }); });
   return [...map.values()].sort((a,b)=>a.name.localeCompare(b.name));
 }
-function buildShoppingList(){ shoppingState=consolidatedIngredients().map(i=>({...i,checked:true})); renderShopping(); }
+function buildShoppingList(){ tappedItems=new Set(); shoppingState=consolidatedIngredients().map(i=>({...i,checked:true})); renderShopping(); }
 function renderShopping(){
   const area=$('shoppingArea'); if(!shoppingState.length){ area.innerHTML=''; return; }
   const rows=shoppingState.map((it,idx)=>`<div class="list-item"><input type="checkbox" data-item="${idx}" ${it.checked?'checked':''}><label>${escapeHtml(it.name)} ${it.count>1?`<span class="muted">×${it.count}</span>`:''} <span class="muted" style="font-size:.8rem;">— ${escapeHtml(it.meals.join(', '))}</span></label></div>`).join('');
@@ -1049,8 +1108,8 @@ async function sendToInstacart(){
     }catch(e){ /* fall through */ }
   }
   // 3) No backend / on a phone: tap-through Instacart search links (works anywhere, no API key)
-  const links=chosen.map(i=>`<a class="ic-link" href="https://www.instacart.com/store/${INSTACART_STORE_SLUG}/s?k=${encodeURIComponent(i.name)}" target="_blank" rel="noopener">${escapeHtml(i.name)} →</a>`).join('');
-  res.innerHTML=`<div class="banner">Tap each item to open it on Instacart (${escapeHtml(INSTACART_STORE_SLUG)}) and add to your cart. Use “Copy list” if you'd rather paste.</div><div class="ic-links">${links}</div>`;
+  const links=chosen.map(i=>`<a class="ic-link ${tappedItems.has(i.name)?'tapped':''}" data-ic="${escapeHtml(i.name)}" href="https://www.instacart.com/store/${INSTACART_STORE_SLUG}/s?k=${encodeURIComponent(i.name)}" target="_blank" rel="noopener">${escapeHtml(i.name)} →</a>`).join('');
+  res.innerHTML=`<div class="banner">Tap each item to open it on Instacart (${escapeHtml(INSTACART_STORE_SLUG)}) and add to your cart — tapped items get a ✓. Use “Copy list” if you'd rather paste.</div><div class="ic-links">${links}</div>`;
 }
 
 /* ---------------- Settings UI ---------------- */
@@ -1100,6 +1159,8 @@ document.addEventListener('click', e=>{
   if(t.dataset.addplan) addToPlan(t.dataset.addplan);
   if(t.dataset.removeplan) removeFromPlan(t.dataset.removeplan);
   if(t.dataset.setwho) openWho();
+  if(t.dataset.editing) openIngEditor(t.dataset.editing);
+  if(t.dataset.ic!==undefined){ tappedItems.add(t.dataset.ic); t.classList.add('tapped'); }
 });
 document.addEventListener('toggle', e=>{ const d=e.target; if(!d.dataset) return;
   if(d.dataset.libid){ if(d.open) openLib.add(d.dataset.libid); else openLib.delete(d.dataset.libid); }
@@ -1133,6 +1194,9 @@ $('choiceB').onclick=()=>resolveChoice('b');
 $('choiceX').onclick=()=>resolveChoice(null);
 $('btnSaveRecipe').onclick=saveRecipeFromModal;
 $('btnAiRevise').onclick=aiReviseRecipe;
+$('btnSaveIng').onclick=saveIngFromModal;
+$('btnIngFromRecipe').onclick=aiIngFromRecipe;
+$('btnIngCheck').onclick=aiIngCheck;
 $('btnSignout').onclick=()=>{ if(auth) signOut(auth); };
 [...document.querySelectorAll('.modal-bg')].forEach(bg=>bg.addEventListener('click',e=>{ if(e.target===bg){ bg.classList.remove('show'); if(bg.id==='choiceModal') resolveChoice(null); } }));
 
