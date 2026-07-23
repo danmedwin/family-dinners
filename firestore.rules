@@ -1,0 +1,33 @@
+rules_version = '2';
+
+// Family Dinner Planner — multi-family rules.
+// Publish these in Firebase Console → Firestore Database → Rules.
+//
+// Each family shares ONE Auth account, and all of that family's data lives
+// under families/{uid}. A signed-in account can only touch its own subtree,
+// so families are fully isolated from each other.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /families/{familyId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == familyId;
+    }
+
+    // Legacy pre-multi-family data (root collections). Read-only, and only
+    // for the original family account so it can migrate itself into
+    // families/{uid} on its next sign-in. Safe to delete these three blocks
+    // (and the root collections) once the migration has happened.
+    match /app/{docId} {
+      allow read: if request.auth != null && request.auth.token.email == 'dinners@medw.in';
+      allow write: if false;
+    }
+    match /meals/{docId} {
+      allow read: if request.auth != null && request.auth.token.email == 'dinners@medw.in';
+      allow write: if false;
+    }
+    match /history/{docId} {
+      allow read: if request.auth != null && request.auth.token.email == 'dinners@medw.in';
+      allow write: if false;
+    }
+  }
+}

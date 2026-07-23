@@ -123,17 +123,25 @@ details.prefs[open]>summary{ margin-bottom:4px;}
   <div id="authCard">
     <div style="font-size:2.2rem;">🍽️</div>
     <h1>Family Dinner Planner</h1>
-    <p>Enter the family password to continue. You'll only need to do this once on this device.</p>
+    <p id="authIntro">Your whole family shares one account. Sign in with your family's email and password — you'll only need to do this once on this device.</p>
+    <input type="email" id="authEmail" placeholder="Family email" autocomplete="username" />
     <input type="password" id="authPass" placeholder="Family password" autocomplete="current-password" />
-    <button class="btn" style="width:100%;" id="authBtn">Unlock</button>
+    <div id="authNewFields" style="display:none;text-align:left;">
+      <input type="text" id="authFamName" placeholder="Family name (optional — e.g. Rivera)" />
+      <input type="text" id="authMembers" placeholder="Who's eating? e.g. Maya, Sam, Ezra" />
+      <p class="muted" style="font-size:.78rem;margin:-4px 0 12px;">You can change names anytime in Settings. Everyone will share this email + password.</p>
+    </div>
+    <button class="btn" style="width:100%;" id="authBtn">Sign in</button>
     <div id="authErr"></div>
+    <p style="margin:14px 0 0;font-size:.85rem;"><a href="#" id="authToggle" style="color:#2f7d4f;font-weight:600;text-decoration:none;">New here? Create your family →</a></p>
+    <p style="margin:8px 0 0;font-size:.8rem;"><a href="#" id="authForgot" style="color:#8a978d;text-decoration:none;">Forgot password?</a></p>
   </div>
 </div>
 
 <!-- ============ APP ============ -->
 <div class="wrap" id="appWrap" style="display:none;">
   <header class="app">
-    <h1>🍽️ Family Dinner Planner</h1>
+    <h1 id="appTitle">🍽️ Family Dinner Planner</h1>
     <div class="row">
       <span id="syncBadge"><span class="dot off"></span>connecting…</span>
       <button class="btn secondary small" id="btnWho">You: set</button>
@@ -183,10 +191,12 @@ details.prefs[open]>summary{ margin-bottom:4px;}
 <div class="modal-bg" id="settingsModal">
   <div class="modal">
     <h2>Settings</h2>
+    <div class="field"><label>Family name</label><input type="text" id="setFamName" placeholder="e.g. Rivera" /></div>
     <div class="field"><label>Dinners per plan</label><input type="text" id="setBatch" inputmode="numeric" /></div>
     <p style="font-size:.82rem;font-weight:600;margin:14px 0 6px;color:#3a4842;">Family members (who can rate)</p>
     <div id="ratersEdit"></div>
     <button class="btn ghost small" id="btnAddRater">＋ Add person</button>
+    <div class="banner" id="shareHint" style="margin-top:16px;"></div>
     <div class="row" style="margin-top:18px;justify-content:flex-end;">
       <button class="btn secondary" data-close="settingsModal">Cancel</button>
       <button class="btn" id="btnSaveSettings">Save</button>
@@ -347,9 +357,11 @@ const firebaseConfig = {
   messagingSenderId: "246329491304",
   appId: "1:246329491304:web:808b311911fede2d2f60dd",
 };
-// The shared family account you create in Firebase Auth (email/password).
-// Family members only ever type the PASSWORD; this email is fixed.
-const FAMILY_EMAIL = "dinners@medw.in";
+// Each family shares ONE account (email + password), created right in the app.
+// LEGACY: the original single-family account. Its pre-multi-family data (the
+// root `meals`/`history`/`app` paths) is migrated into families/{uid} the next
+// time it signs in. firestore.rules only lets this account read those paths.
+const LEGACY_FAMILY_EMAIL = "dinners@medw.in";
 // OPTIONAL: your Instacart backend (Cloudflare Worker) URL — one-tap add from any phone.
 // Requires an Instacart API key, which is currently closed to new developers. Leave "" to
 // use the no-key "tap each item" flow below. See INSTACART_SETUP.md.
@@ -364,6 +376,7 @@ const RECIPE_AI_WORKER_URL = "https://recipe-ai.dan-medwin.workers.dev";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, setPersistence, browserLocalPersistence, signInWithEmailAndPassword,
+         createUserWithEmailAndPassword, sendPasswordResetEmail,
          onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, collection, doc, onSnapshot, setDoc, getDocs, getDoc,
          updateDoc, addDoc, deleteDoc, deleteField, writeBatch, arrayUnion }
@@ -376,6 +389,16 @@ if (!NOT_CONFIGURED) {
   auth = getAuth(app);
   db = getFirestore(app);
 }
+
+/* ---------------- Per-family Firestore paths ----------------
+   Every family's data lives under families/{uid}, where uid is the family's
+   shared Firebase Auth account. Set once at sign-in, before any listener runs. */
+let famId = null;
+const mealsCol   = () => collection(db,'families',famId,'meals');
+const historyCol = () => collection(db,'families',famId,'history');
+const mealDoc    = (id) => doc(db,'families',famId,'meals',id);
+const configDoc  = () => doc(db,'families',famId,'meta','config');
+const stateDoc   = () => doc(db,'families',famId,'meta','state');
 
 /* ---------------- Seed library (Reform-kosher, non-dairy priority, healthy) ---------------- */
 const SEED_MEALS = [
@@ -453,9 +476,8 @@ const RECIPES = {
 
 /* ---------------- In-memory state (synced from Firestore) ---------------- */
 let meals = [];                 // [{id, name, type, dairy, healthy, desc, ing, ratings:{rater:val}}]
-const PLACEHOLDER_RATERS = ["Adult 1","Adult 2","Kid 1","Kid 2","Kid 3"];
-const FAMILY_RATERS = ["Dan","Lydia","Zimra","Gavi","Jasmine"];
-let config = { raters:FAMILY_RATERS.slice(), batch:3 };
+const PLACEHOLDER_RATERS = ["Adult 1","Adult 2","Kid 1","Kid 2"];
+let config = { raters:PLACEHOLDER_RATERS.slice(), batch:3, famName:'' };
 let plan = [];                  // [mealId,...] (shared)
 let assign = {};                // { mealId: 'YYYY-MM-DD' } day assignment (shared)
 let history = [];               // [{date, mealIds:[...]}]
@@ -498,8 +520,8 @@ function weightedSample(pool,n){
 }
 
 /* ---------------- Firestore writes ---------------- */
-async function writePlan(ids){ await setDoc(doc(db,'app','state'), { plan: ids }, { merge:true }); }
-async function writeAssign(mealId, day){ assign={...assign,[mealId]:day}; await setDoc(doc(db,'app','state'), { assign:{[mealId]:day} }, { merge:true }); }
+async function writePlan(ids){ await setDoc(stateDoc(), { plan: ids }, { merge:true }); }
+async function writeAssign(mealId, day){ assign={...assign,[mealId]:day}; await setDoc(stateDoc(), { assign:{[mealId]:day} }, { merge:true }); }
 async function addToPlan(id){ if(plan.includes(id)){ toast('Already in the plan.'); return; } await writePlan([...plan, id]); toast('Added to plan.'); }
 async function removeFromPlan(id){ await writePlan(plan.filter(x=>x!==id)); }
 async function dedupeMeals(){
@@ -513,12 +535,12 @@ async function dedupeMeals(){
   dups.forEach(g=>{
     g.sort((a,c)=> (Object.keys(c.ratings||{}).length-Object.keys(a.ratings||{}).length)
       || ((c.recipe?1:0)-(a.recipe?1:0)) || ((a.createdAt||0)-(c.createdAt||0)) );
-    g.slice(1).forEach(m=> b.delete(doc(db,'meals',m.id)));
+    g.slice(1).forEach(m=> b.delete(mealDoc(m.id)));
   });
   try{ await b.commit(); toast('Removed '+count+' duplicate(s).'); }catch(e){ toast('Cleanup failed — try again.'); }
 }
-async function writeConfig(c){ await setDoc(doc(db,'app','config'), c, { merge:true }); }
-async function writePlanReset(ids){ assign={}; await setDoc(doc(db,'app','state'), { plan:ids, assign:{} }); }
+async function writeConfig(c){ await setDoc(configDoc(), c, { merge:true }); }
+async function writePlanReset(ids){ assign={}; await setDoc(stateDoc(), { plan:ids, assign:{} }); }
 async function proposePlan(){
   if(meals.length < config.batch){ toast("Add more meals to the library first."); return; }
   const dated = plan.filter(id=>assign[id]);
@@ -547,27 +569,27 @@ async function rerollOne(mealId){
 async function setRating(mealId, raterEnc, val){
   const rater=decodeURIComponent(raterEnc);
   const m=meals.find(x=>x.id===mealId); const cur=(m&&m.ratings&&m.ratings[rater])||0;
-  const ref=doc(db,'meals',mealId);
+  const ref=mealDoc(mealId);
   if(cur===val) await updateDoc(ref,{['ratings.'+rater]: deleteField()});
   else await updateDoc(ref,{['ratings.'+rater]: val});
 }
 async function setPref(mealId, raterEnc, val){
   const rater=decodeURIComponent(raterEnc);
   const m=meals.find(x=>x.id===mealId); const cur=(m&&m.prefs&&m.prefs[rater])||'';
-  const ref=doc(db,'meals',mealId);
+  const ref=mealDoc(mealId);
   if(cur===val) await updateDoc(ref,{['prefs.'+rater]: deleteField()});
   else await updateDoc(ref,{['prefs.'+rater]: val});
 }
 async function markMade(mealId){
   const m=meals.find(x=>x.id===mealId); if(!m) return;
-  const ref=doc(db,'meals',mealId);
+  const ref=mealDoc(mealId);
   await updateDoc(ref,{ made: !m.made, lastMade: !m.made ? new Date().toISOString() : (m.lastMade||null) });
 }
 async function addCookNote(mealId){
   const inp=document.querySelector('[data-noteinput="'+mealId+'"]'); if(!inp) return;
   const text=inp.value.trim(); if(!text){ return; }
   const by=meValid()?myName:'Someone';
-  await updateDoc(doc(db,'meals',mealId), { cookNotes: arrayUnion({ text, date:new Date().toISOString(), by }) });
+  await updateDoc(mealDoc(mealId), { cookNotes: arrayUnion({ text, date:new Date().toISOString(), by }) });
   inp.value=''; toast('Note added.');
 }
 let recipeEditId=null;
@@ -599,7 +621,7 @@ async function saveRecipeFromModal(){
   const by=meValid()?myName:'Someone';
   const hist=(m.recipeHistory||[]).slice();
   if((m.recipe||'').trim() && (m.recipe||'')!==newText){ hist.unshift({ text:m.recipe, date:new Date().toISOString(), by }); }
-  await updateDoc(doc(db,'meals',m.id), { recipe:newText, recipeHistory:hist, recipeUpdatedAt:new Date().toISOString(), recipeUpdatedBy:by });
+  await updateDoc(mealDoc(m.id), { recipe:newText, recipeHistory:hist, recipeUpdatedAt:new Date().toISOString(), recipeUpdatedBy:by });
   closeModal('recipeModal'); toast('Recipe updated.');
 }
 /* ---- Ingredient editor (plan/library cards) ---- */
@@ -613,7 +635,7 @@ function openIngEditor(id){ const m=meals.find(x=>x.id===id); if(!m) return; ing
 }
 async function saveIngFromModal(){ const m=meals.find(x=>x.id===ingEditId); if(!m) return;
   const ing=$('ingText').value.split('\n').map(s=>s.trim()).filter(Boolean);
-  await updateDoc(doc(db,'meals',m.id), { ing });
+  await updateDoc(mealDoc(m.id), { ing });
   closeModal('ingModal'); toast('Ingredients updated.');
 }
 async function aiIngFromRecipe(){ const m=meals.find(x=>x.id===ingEditId); if(!m) return;
@@ -730,7 +752,7 @@ async function generateIdeas(){
 async function addIdea(i){
   const idea=genIdeas[i]; if(!idea) return;
   const type=['veg','poultry','meat','fish'].includes(idea.type)?idea.type:'veg';
-  await addDoc(collection(db,'meals'), { name:idea.name||'New dinner', desc:idea.desc||'', type, dairy:!!idea.dairy, healthy:idea.healthy!==false, ing:Array.isArray(idea.ing)?idea.ing.map(String):[], recipe:idea.recipe||'', prep:normPrep(idea.prep), ratings:{}, prefs:{}, createdAt:Date.now() });
+  await addDoc(mealsCol(), { name:idea.name||'New dinner', desc:idea.desc||'', type, dairy:!!idea.dairy, healthy:idea.healthy!==false, ing:Array.isArray(idea.ing)?idea.ing.map(String):[], recipe:idea.recipe||'', prep:normPrep(idea.prep), ratings:{}, prefs:{}, createdAt:Date.now() });
   genAddedNames.add(idea.name); renderGenResults(); toast('Added to Library.');
 }
 function mealName(id){ const m=meals.find(x=>x.id===id); return m?m.name:'(removed)'; }
@@ -751,9 +773,9 @@ async function approvePlan(){
   if(undated.length){
     if(!confirm(undated.length+' meal(s) have no day and will be skipped:\n• '+undated.map(mealName).join('\n• ')+'\n\nContinue with the '+assignedIds.length+' dated meal(s)?')) return;
   }
-  await addDoc(collection(db,'history'), { date:new Date().toISOString(), mealIds: assignedIds.slice() });
+  await addDoc(historyCol(), { date:new Date().toISOString(), mealIds: assignedIds.slice() });
   const b=writeBatch(db);
-  assignedIds.forEach(id=>{ b.update(doc(db,'meals',id), { lastPlanned: assign[id] }); });
+  assignedIds.forEach(id=>{ b.update(mealDoc(id), { lastPlanned: assign[id] }); });
   try{ await b.commit(); }catch(e){}
   buildShoppingList();
   buildCalendar();
@@ -764,20 +786,20 @@ async function saveMeal(){
   const name=$('amName').value.trim(); if(!name){ toast("Give the meal a name."); return; }
   const ing=$('amIng').value.split('\n').map(s=>s.trim()).filter(Boolean);
   if(!ing.length){ toast("Add at least one ingredient."); return; }
-  await addDoc(collection(db,'meals'), { name, desc:$('amDesc').value.trim(), type:$('amType').value, dairy:false, healthy:true, ing, recipe:$('amRecipe').value.trim(), prep:$('amPrep').value, ratings:{}, createdAt:Date.now() });
+  await addDoc(mealsCol(), { name, desc:$('amDesc').value.trim(), type:$('amType').value, dairy:false, healthy:true, ing, recipe:$('amRecipe').value.trim(), prep:$('amPrep').value, ratings:{}, createdAt:Date.now() });
   $('amName').value=''; $('amDesc').value=''; $('amIng').value=''; $('amRecipe').value=''; $('amPrep').value='';
   closeModal('addDinnersModal'); toast("Meal added.");
 }
 async function removeMeal(id){
   if(!confirm('Remove this meal from the library?')) return;
-  await deleteDoc(doc(db,'meals',id));
+  await deleteDoc(mealDoc(id));
   if(plan.includes(id)) await writePlan(plan.filter(x=>x!==id));
 }
 async function resetRatings(){
   if(!confirm('Erase all ratings and planning history? Meals are kept.')) return;
   const batch=writeBatch(db);
-  meals.forEach(m=> batch.update(doc(db,'meals',m.id), { ratings:{} }));
-  const hist=await getDocs(collection(db,'history'));
+  meals.forEach(m=> batch.update(mealDoc(m.id), { ratings:{} }));
+  const hist=await getDocs(historyCol());
   hist.forEach(d=> batch.delete(d.ref));
   await batch.commit();
   closeModal('settingsModal'); toast("Ratings and history reset.");
@@ -792,7 +814,7 @@ let genCriteria = { types:new Set(), prep:'any', healthy:false, nondairy:false, 
 let genIdeas = []; let genAddedNames = new Set();
 let cookedSort = 'date-new';
 const LIB_FILTERS=[{k:'veg',label:'Vegetarian'},{k:'poultry',label:'Poultry'},{k:'meat',label:'Beef'},{k:'fish',label:'Fish'},{k:'healthy',label:'Healthy'},{k:'nondairy',label:'Non-dairy'},{k:'dairy',label:'Light dairy'},{k:'u15',label:'⏱ <15'},{k:'15-30',label:'⏱ 15–30'},{k:'30-45',label:'⏱ 30–45'},{k:'45+',label:'⏱ 45+'}];
-let myName = localStorage.getItem('fdp_me') || '';
+let myName = '';   // set at sign-in from the per-family localStorage key
 let whoPrompted = false;
 function meValid(){ return myName && config.raters.includes(myName); }
 function orderedRaters(){ const o=config.raters.filter(r=>r!==myName); return meValid()?[myName,...o]:config.raters.slice(); }
@@ -971,7 +993,7 @@ function renderWhoList(){
   $('whoList').innerHTML=config.raters.map(r=>`<button class="btn ${r===myName?'':'secondary'}" style="width:100%;margin-bottom:8px;" data-who="${encodeURIComponent(r)}">${escapeHtml(r)}</button>`).join('')
     || '<div class="empty-hint">Add family members in Settings first.</div>';
 }
-function setWho(enc){ myName=decodeURIComponent(enc); localStorage.setItem('fdp_me',myName); closeModal('whoModal'); renderAll(); toast('Set to '+myName+' on this device.'); }
+function setWho(enc){ myName=decodeURIComponent(enc); localStorage.setItem('fdp_me_'+famId,myName); closeModal('whoModal'); renderAll(); toast('Set to '+myName+' on this device.'); }
 function maybePromptWho(){ if(whoPrompted) return; if(config.raters.length && !meValid()){ whoPrompted=true; openWho(); } }
 /* ---- day assignment + calendar (.ics) ---- */
 function pad(n){ return String(n).padStart(2,'0'); }
@@ -1053,7 +1075,10 @@ function setTab(t){ activeTab=t;
   ['plan','library','cooked','ratings'].forEach(x=>{ const el=$('tab'+cap(x)); if(el) el.style.display=(x===t)?'':'none'; });
   [...document.querySelectorAll('.tab-btn')].forEach(b=>b.classList.toggle('active', b.dataset.tab===t));
 }
-function renderAll(){ updateWhoChip(); renderFavorites(); renderPlan(); renderLibrary(); renderCooked(); renderRatings(); maybePromptWho(); }
+function renderAll(){
+  $('appTitle').textContent = '🍽️ ' + (config.famName ? config.famName+' Family Dinners' : 'Family Dinner Planner');
+  updateWhoChip(); renderFavorites(); renderPlan(); renderLibrary(); renderCooked(); renderRatings(); maybePromptWho();
+}
 
 /* ---------------- Shopping list + Instacart ---------------- */
 function consolidatedIngredients(){
@@ -1115,7 +1140,13 @@ async function sendToInstacart(){
 
 /* ---------------- Settings UI ---------------- */
 let raterDraft=[];
-function openSettings(){ $('setBatch').value=config.batch; raterDraft=config.raters.slice(); renderRatersEdit(); $('settingsModal').classList.add('show'); }
+function openSettings(){
+  $('setBatch').value=config.batch; $('setFamName').value=config.famName||'';
+  raterDraft=config.raters.slice(); renderRatersEdit();
+  const email=(auth&&auth.currentUser&&auth.currentUser.email)||'';
+  $('shareHint').innerHTML='👨‍👩‍👧‍👦 <strong>Add your family:</strong> have them open <strong>'+escapeHtml(location.origin+location.pathname)+'</strong> on their phone and sign in with '+(email?'<strong>'+escapeHtml(email)+'</strong>':'your family email')+' and your family password.';
+  $('settingsModal').classList.add('show');
+}
 function renderRatersEdit(){
   $('ratersEdit').innerHTML=raterDraft.map((r,i)=>`<div class="row" style="margin-bottom:6px;"><input type="text" value="${escapeHtml(r)}" data-rdraft="${i}" class="flex-grow" style="flex:1;"><button class="btn ghost small" style="color:#a23b2b;" data-rdel="${i}">✕</button></div>`).join('');
 }
@@ -1125,6 +1156,7 @@ async function saveSettings(){
   const next={...config};
   if(b>=1&&b<=14) next.batch=b;
   if(cleaned.length) next.raters=cleaned;
+  next.famName=$('setFamName').value.trim();
   await writeConfig(next);
   closeModal('settingsModal'); toast("Settings saved.");
 }
@@ -1204,26 +1236,93 @@ $('btnSignout').onclick=()=>{ if(auth) signOut(auth); };
 [...document.querySelectorAll('.modal-bg')].forEach(bg=>bg.addEventListener('click',e=>{ if(e.target===bg){ bg.classList.remove('show'); if(bg.id==='choiceModal') resolveChoice(null); } }));
 
 /* ---------------- Auth + live data ---------------- */
-async function doLogin(){
-  const pass=$('authPass').value; if(!pass){ return; }
-  $('authErr').textContent=''; $('authBtn').disabled=true; $('authBtn').textContent='Unlocking…';
+let authMode = 'signin';                 // 'signin' | 'signup'
+let pendingSetup = null;                 // {famName, raters} captured from the sign-up form
+function setAuthMode(mode){
+  authMode = mode;
+  const signup = mode==='signup';
+  $('authNewFields').style.display = signup ? '' : 'none';
+  $('authIntro').textContent = signup
+    ? 'Create one shared account for your whole family. Everyone signs in with the same email and password on their own device.'
+    : "Your whole family shares one account. Sign in with your family's email and password — you'll only need to do this once on this device.";
+  $('authBtn').textContent = signup ? 'Create family' : 'Sign in';
+  $('authToggle').textContent = signup ? '← Back to sign in' : 'New here? Create your family →';
+  $('authErr').textContent='';
+}
+function authError(err){
+  const m={
+    'auth/invalid-credential':'Wrong email or password.',
+    'auth/wrong-password':'Incorrect password.',
+    'auth/user-not-found':'No family with that email yet — tap "Create your family" below.',
+    'auth/invalid-email':'That doesn’t look like a valid email address.',
+    'auth/email-already-in-use':'A family already uses that email. Switch to Sign in instead.',
+    'auth/weak-password':'Password must be at least 6 characters.',
+    'auth/too-many-requests':'Too many attempts — wait a minute and try again.',
+  };
+  return m[err.code] || ('Error: '+(err.code||err.message));
+}
+async function doAuth(){
+  const email=$('authEmail').value.trim(), pass=$('authPass').value;
+  if(!email){ $('authErr').textContent='Enter your family email.'; return; }
+  if(!pass){ $('authErr').textContent='Enter your family password.'; return; }
+  $('authErr').textContent=''; $('authBtn').disabled=true;
+  $('authBtn').textContent = authMode==='signup' ? 'Creating…' : 'Signing in…';
   try{
     await setPersistence(auth, browserLocalPersistence);
-    await signInWithEmailAndPassword(auth, FAMILY_EMAIL, pass);
+    if(authMode==='signup'){
+      const members=$('authMembers').value.split(/[,\n]/).map(s=>s.trim()).filter(Boolean);
+      pendingSetup={ famName:$('authFamName').value.trim(), raters:members };
+      await createUserWithEmailAndPassword(auth, email, pass);
+    }else{
+      await signInWithEmailAndPassword(auth, email, pass);
+    }
   }catch(err){
-    $('authErr').textContent = (err.code==='auth/invalid-credential'||err.code==='auth/wrong-password')
-      ? 'Incorrect password.' : ('Sign-in error: '+(err.code||err.message));
-    $('authBtn').disabled=false; $('authBtn').textContent='Unlock';
+    $('authErr').textContent = authError(err);
+    $('authBtn').disabled=false;
+    $('authBtn').textContent = authMode==='signup' ? 'Create family' : 'Sign in';
   }
 }
-async function ensureSeeded(){
-  const cfg=await getDoc(doc(db,'app','config'));
-  if(cfg.exists() && cfg.data().seeded) return;            // already seeded once — never re-seed
-  const snap=await getDocs(collection(db,'meals'));
-  if(!snap.empty){ await setDoc(doc(db,'app','config'), { seeded:true }, { merge:true }); return; }
+async function doForgot(){
+  const email=$('authEmail').value.trim();
+  if(!email){ $('authErr').textContent='Enter your family email first, then tap "Forgot password".'; return; }
+  try{ await sendPasswordResetEmail(auth, email); $('authErr').textContent=''; toast('Password reset email sent to '+email+'.'); }
+  catch(err){ $('authErr').textContent = authError(err); }
+}
+/* One-time move of the original family's pre-multi-family data (root
+   collections) into families/{uid}. Meal doc IDs are preserved so the saved
+   plan, day assignments, and history keep pointing at the right meals.
+   firestore.rules restricts the legacy paths to LEGACY_FAMILY_EMAIL. */
+async function migrateLegacyData(){
+  const legacyCfg = await getDoc(doc(db,'app','config'));
+  if(!legacyCfg.exists()) return false;
+  const [legacyMeals, legacyHist, legacyState] = await Promise.all([
+    getDocs(collection(db,'meals')), getDocs(collection(db,'history')), getDoc(doc(db,'app','state'))
+  ]);
+  const writes=[];
+  legacyMeals.forEach(d=> writes.push([mealDoc(d.id), d.data()]));
+  legacyHist.forEach(d=> writes.push([doc(historyCol(), d.id), d.data()]));
+  if(legacyState.exists()) writes.push([stateDoc(), legacyState.data()]);
+  writes.push([configDoc(), {...legacyCfg.data(), seeded:true, migratedLegacy:new Date().toISOString()}]);
+  for(let i=0;i<writes.length;i+=400){                    // Firestore batch limit is 500 writes
+    const b=writeBatch(db);
+    writes.slice(i,i+400).forEach(([ref,data])=> b.set(ref,data));
+    await b.commit();
+  }
+  return true;
+}
+async function ensureFamilyData(user){
+  const cfg=await getDoc(configDoc());
+  if(cfg.exists() && cfg.data().seeded) return;            // already set up — never re-seed
+  if(user.email && user.email.toLowerCase()===LEGACY_FAMILY_EMAIL.toLowerCase()){
+    try{ if(await migrateLegacyData()) return; }catch(e){ console.warn('Legacy migration failed', e); }
+  }
+  const snap=await getDocs(mealsCol());
+  if(!snap.empty){ await setDoc(configDoc(), { seeded:true }, { merge:true }); return; }
+  const setup=pendingSetup||{}; pendingSetup=null;
+  const raters=(setup.raters&&setup.raters.length)?setup.raters:PLACEHOLDER_RATERS.slice();
   const b=writeBatch(db);
-  SEED_MEALS.forEach((m,i)=> b.set(doc(collection(db,'meals')), {...m, recipe:RECIPES[m.name]||'', ratings:{}, createdAt:1000+i, prep:PREP_SEED[m.name]||''}));
-  b.set(doc(db,'app','config'), {...config, seeded:true}, {merge:true});
+  SEED_MEALS.forEach((m,i)=> b.set(doc(mealsCol()), {...m, recipe:RECIPES[m.name]||'', ratings:{}, createdAt:1000+i, prep:PREP_SEED[m.name]||''}));
+  b.set(configDoc(), { raters, batch:3, famName:setup.famName||'', seeded:true }, {merge:true});
   await b.commit();
 }
 let recipesBackfilled=false;
@@ -1235,42 +1334,48 @@ async function backfillRecipes(){
     if((!m.recipe || !m.recipe.trim()) && RECIPES[m.name]) upd.recipe=RECIPES[m.name];
     if(m.createdAt===undefined) upd.createdAt = (m.name in SEED_INDEX) ? 1000+SEED_INDEX[m.name] : 2000;
     if((m.prep===undefined||m.prep==='') && PREP_SEED[m.name]) upd.prep=PREP_SEED[m.name];
-    if(Object.keys(upd).length){ b.update(doc(db,'meals',m.id), upd); n++; }
+    if(Object.keys(upd).length){ b.update(mealDoc(m.id), upd); n++; }
   });
   if(n){ try{ await b.commit(); }catch(e){} }
 }
 function startListeners(){
-  onSnapshot(collection(db,'meals'), s=>{ meals=s.docs.map(d=>({id:d.id, ...d.data(), ratings:d.data().ratings||{}, prefs:d.data().prefs||{}})); setSync(true); renderAll(); backfillRecipes(); }, ()=>setSync(false));
-  onSnapshot(doc(db,'app','config'), s=>{
+  onSnapshot(mealsCol(), s=>{ meals=s.docs.map(d=>({id:d.id, ...d.data(), ratings:d.data().ratings||{}, prefs:d.data().prefs||{}})); setSync(true); renderAll(); backfillRecipes(); }, ()=>setSync(false));
+  onSnapshot(configDoc(), s=>{
     if(s.exists()){
       config={...config, ...s.data()};
-      const r=config.raters||[];
-      // one-time migration: replace untouched placeholder names with the family's names
-      if(r.length===PLACEHOLDER_RATERS.length && r.every((n,i)=>n===PLACEHOLDER_RATERS[i])){
-        writeConfig({ raters:FAMILY_RATERS.slice() });
-      }
       renderAll();
     } else {
-      writeConfig({ raters:FAMILY_RATERS.slice(), batch:config.batch });
+      writeConfig({ raters:PLACEHOLDER_RATERS.slice(), batch:config.batch });
     }
   });
-  onSnapshot(doc(db,'app','state'), s=>{ plan=(s.exists()&&s.data().plan)||[]; assign=(s.exists()&&s.data().assign)||{}; renderPlan(); });
-  onSnapshot(collection(db,'history'), s=>{ history=s.docs.map(d=>d.data()).sort((a,b)=>(a.date||'').localeCompare(b.date||'')); });
+  onSnapshot(stateDoc(), s=>{ plan=(s.exists()&&s.data().plan)||[]; assign=(s.exists()&&s.data().assign)||{}; renderPlan(); });
+  onSnapshot(historyCol(), s=>{ history=s.docs.map(d=>d.data()).sort((a,b)=>(a.date||'').localeCompare(b.date||'')); });
 }
 
 /* ---------------- Boot ---------------- */
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
 if(NOT_CONFIGURED){
   $('authOverlay').style.display='none'; $('appWrap').style.display='';
-  $('appWrap').insertAdjacentHTML('afterbegin','<div class="config-warn"><strong>Not configured yet.</strong> Open this file and fill in <code>firebaseConfig</code> and <code>FAMILY_EMAIL</code> at the top of the script (see SETUP.md), then redeploy.</div>');
+  $('appWrap').insertAdjacentHTML('afterbegin','<div class="config-warn"><strong>Not configured yet.</strong> Open this file and fill in <code>firebaseConfig</code> at the top of the script (see SETUP.md), then redeploy.</div>');
 }else{
-  $('authBtn').onclick=doLogin;
-  $('authPass').addEventListener('keydown',e=>{ if(e.key==='Enter') doLogin(); });
+  $('authBtn').onclick=doAuth;
+  $('authToggle').onclick=e=>{ e.preventDefault(); setAuthMode(authMode==='signin'?'signup':'signin'); };
+  $('authForgot').onclick=e=>{ e.preventDefault(); doForgot(); };
+  $('authEmail').value = localStorage.getItem('fdp_email')||'';
+  ['authEmail','authPass'].forEach(id=> $(id).addEventListener('keydown',e=>{ if(e.key==='Enter') doAuth(); }));
+  let listenersStarted=false;
   onAuthStateChanged(auth, async user=>{
     if(user){
+      famId=user.uid;
+      localStorage.setItem('fdp_email', user.email||'');
+      // "Who am I" is remembered per family; adopt the pre-multi-family key once.
+      myName = localStorage.getItem('fdp_me_'+famId) || localStorage.getItem('fdp_me') || '';
       $('authOverlay').style.display='none'; $('appWrap').style.display='';
-      try{ await ensureSeeded(); }catch(e){}
+      try{ await ensureFamilyData(user); }catch(e){ console.warn('Family setup failed', e); }
+      listenersStarted=true;
       startListeners();
+    }else if(listenersStarted){
+      location.reload();                       // detach this family's listeners cleanly
     }else{
       $('authOverlay').style.display='flex'; $('appWrap').style.display='none';
     }
