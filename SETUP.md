@@ -1,54 +1,82 @@
 # Family Dinner Planner — Setup
 
 A single-file PWA (`index.html`) backed by Firebase (Auth + Firestore).
-As of the multi-family update, **any family can use the hosted app** at
-https://techrabbi.org/family-dinners/ — no code changes or self-hosting needed.
+As of the multi-family update, **any invited family can use the hosted app**
+at https://techrabbi.org/family-dinners/ — no self-hosting needed.
 
 ## How multi-family works
 
-- Each family creates **one shared account** (email + password) right on the
-  sign-in screen ("New here? Create your family →"). Everyone in the family
-  signs in with the same credentials on their own device.
-- All of a family's data lives under `families/{uid}` in Firestore, where
-  `uid` is their shared account. The security rules in `firestore.rules`
-  guarantee a family can only ever read/write its own subtree.
-- New families are seeded with the starter meal library and the member names
-  they enter at sign-up (editable later in Settings).
+- Each family creates **one shared account** (email + password) on the
+  sign-in screen ("New here? Create your family →"). Sign-up requires an
+  **invite code** and captures the family's **food profile** (which proteins,
+  dairy stance, kosher-style, healthy focus).
+- All of a family's data lives under `families/{uid}` in Firestore.
+  `firestore.rules` guarantees a family can only read/write its own data;
+  the admin account (the original family) can additionally *read* everything,
+  which powers the in-app usage dashboard (Settings → 📊 Family usage).
+- New families are seeded with the starter library **filtered to their food
+  profile**, and the AI generate/recipe features pass the profile to the
+  worker so suggestions respect it automatically.
+- The invite code lives in Firestore at `admin/invite` (field `code`). It is
+  enforced server-side by the rules and is never readable by browsers.
+  Rotate it in the console anytime; existing families are unaffected.
 - The original family's pre-multi-family data (root `meals`, `history`,
-  `app/config`, `app/state`) is migrated automatically into
-  `families/{uid}` the next time that account signs in. Meal IDs are
-  preserved, so the current plan, day assignments, and history stay intact.
-  The old root data is left in place as a backup (read-only under the new
-  rules); it can be deleted from the console once the migration is verified.
+  `app/*`) migrates automatically into `families/{uid}` on that account's
+  next sign-in, with meal IDs preserved. The root data remains as a
+  read-only backup.
 
-## One-time steps in the Firebase console (required before announcing)
+## Go-live checklist (in this order)
 
-1. **Publish the security rules.** Firestore Database → Rules → paste the
-   contents of `firestore.rules` → Publish. Do this *before* sharing the app:
-   without them, any signed-in account can read every family's data.
-2. **Confirm Email/Password sign-in is enabled.** Authentication →
-   Sign-in method → Email/Password (already on for the original account).
-3. *(Optional)* Authentication → Templates: customize the password-reset
-   email (the app has a "Forgot password?" link).
+1. **Anthropic spend cap.** In the [Anthropic Console](https://console.anthropic.com)
+   → Settings → Limits, set the monthly spend limit for the API key used by
+   the recipe worker (e.g. $5/month). AI features fail gracefully in the app
+   when the cap is hit — everything else keeps working.
+2. **Create the invite code.** Firebase Console → Firestore Database → Start
+   collection: collection ID `admin`, document ID `invite`, one string field
+   `code` with your chosen code (case-sensitive — pick something easy to
+   type on a phone, e.g. `shabbat-dinner`).
+3. **Redeploy the Cloudflare Worker** with the updated `recipe-ai-worker.js`
+   (adds food-profile awareness and locks CORS to techrabbi.org). In the
+   Cloudflare dashboard: Workers → recipe-ai → Edit code → paste → Deploy.
+4. **Merge & deploy the app** (merge the PR; GitHub Pages redeploys
+   automatically in a minute or two).
+5. **Publish the security rules** — Firestore Database → Rules → paste the
+   contents of `firestore.rules` → Publish. Do this promptly after step 4:
+   the old rules must stay up until the new app is live (they'd break the
+   old app), but until the new rules are published, sign-ups aren't
+   invite-gated and data isn't isolated.
+6. **Sign in once** with the original account to trigger the data migration,
+   and verify your meals/plan/history look right.
 
-## Things to know
+## Rolling back (if it all goes to shit)
 
-- **Anyone with the URL can create a family.** Firestore/Auth free-tier
-  limits are generous, but the AI features (`RECIPE_AI_WORKER_URL`) call a
-  Cloudflare Worker that uses *your* Anthropic API key — every family shares
-  it. To limit cost: set a spend cap on the Anthropic key, lock the Worker's
-  `ALLOW_ORIGIN` to `https://techrabbi.org`, and/or add rate limiting in the
-  Worker. Set `RECIPE_AI_WORKER_URL = ""` to turn AI features off entirely.
-- To stop new sign-ups later, guard account creation in Firebase
-  (Authentication → Settings → User actions → disable "Enable create").
-- `INSTACART_STORE_SLUG` is a single global default (currently `publix`);
-  tap-through links use it for every family.
+- **Soft pullback — keep the new app, stop new families:** delete the
+  `admin/invite` doc (no one can complete sign-up), or disable specific
+  accounts in Firebase Console → Authentication → Users. Existing data and
+  your family's app are untouched. This is the recommended lever.
+- **Full rollback — return to the single-family app:** in GitHub, open the
+  merged PR and click **Revert** (Pages redeploys the old app), then in
+  Firestore → Rules use the version history to restore the previous rules.
+  Caveat: the old app reads the root collections, which froze at migration
+  time — anything your family changed *after* migrating lives only under
+  `families/{uid}` and would need copying back. So: revert soon after
+  launch is lossless; revert much later means reconciling data (ask Claude
+  to script it).
+
+## Costs (who pays what)
+
+- **Firebase:** free tier covers dozens of families (50k reads / 20k writes
+  per day). Email/password auth is free.
+- **Hosting + Cloudflare Worker:** free.
+- **Anthropic API (your key):** Haiku 4.5 via the worker; "Generate ideas"
+  ≈ 1–2¢ per call, other helpers well under 1¢. An active family ≈
+  $0.30–0.50/month. The spend cap in step 1 is the hard backstop.
 
 ## Self-hosting (optional)
 
 Fork the repo, create your own Firebase project (Auth + Firestore), paste
 your config into `firebaseConfig` at the top of `index.html`, publish
-`firestore.rules`, and serve the folder from any static host (GitHub Pages
-works). The AI helpers need your own Cloudflare Worker — deploy
-`recipe-ai-worker.js` with an `ANTHROPIC_API_KEY` secret and set
-`RECIPE_AI_WORKER_URL`.
+`firestore.rules` (change the admin email in it), create your `admin/invite`
+doc, and serve the folder from any static host. The AI helpers need your own
+Cloudflare Worker — deploy `recipe-ai-worker.js` with an `ANTHROPIC_API_KEY`
+secret and set `RECIPE_AI_WORKER_URL` (and its `ALLOW_ORIGIN`).

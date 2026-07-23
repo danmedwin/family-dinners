@@ -127,9 +127,27 @@ details.prefs[open]>summary{ margin-bottom:4px;}
     <input type="email" id="authEmail" placeholder="Family email" autocomplete="username" />
     <input type="password" id="authPass" placeholder="Family password" autocomplete="current-password" />
     <div id="authNewFields" style="display:none;text-align:left;">
+      <input type="text" id="authInvite" placeholder="Invite code" autocomplete="off" />
       <input type="text" id="authFamName" placeholder="Family name (optional — e.g. Rivera)" />
       <input type="text" id="authMembers" placeholder="Who's eating? e.g. Maya, Sam, Ezra" />
-      <p class="muted" style="font-size:.78rem;margin:-4px 0 12px;">You can change names anytime in Settings. Everyone will share this email + password.</p>
+      <div class="field" style="margin-bottom:10px;"><label>What does your family eat?</label>
+        <div class="fchips" id="suProteins">
+          <button type="button" class="fchip on" data-prot="veg">Vegetarian</button>
+          <button type="button" class="fchip on" data-prot="poultry">Poultry</button>
+          <button type="button" class="fchip on" data-prot="meat">Beef</button>
+          <button type="button" class="fchip on" data-prot="fish">Fish</button>
+        </div></div>
+      <div class="field" style="margin-bottom:10px;"><label>Dairy</label>
+        <select id="suDairy" style="width:100%;padding:9px;border:1px solid #ccd4cd;border-radius:8px;font-size:.95rem;">
+          <option value="any">No restriction</option>
+          <option value="light">Prefer non-dairy (light dairy okay)</option>
+          <option value="none">No dairy</option>
+        </select></div>
+      <div class="fchips" id="suToggles" style="margin-bottom:12px;">
+        <button type="button" class="fchip" data-tog="kosher">Kosher-style</button>
+        <button type="button" class="fchip" data-tog="healthy">Healthy focus</button>
+      </div>
+      <p class="muted" style="font-size:.78rem;margin:-2px 0 12px;">This shapes your starter library and AI suggestions — change it anytime in Settings. Everyone will share this email + password.</p>
     </div>
     <button class="btn" style="width:100%;" id="authBtn">Sign in</button>
     <div id="authErr"></div>
@@ -196,6 +214,23 @@ details.prefs[open]>summary{ margin-bottom:4px;}
     <p style="font-size:.82rem;font-weight:600;margin:14px 0 6px;color:#3a4842;">Family members (who can rate)</p>
     <div id="ratersEdit"></div>
     <button class="btn ghost small" id="btnAddRater">＋ Add person</button>
+    <p style="font-size:.82rem;font-weight:600;margin:16px 0 6px;color:#3a4842;">Food profile (shapes AI suggestions)</p>
+    <div class="fchips" id="setProteins">
+      <button type="button" class="fchip" data-prot="veg">Vegetarian</button>
+      <button type="button" class="fchip" data-prot="poultry">Poultry</button>
+      <button type="button" class="fchip" data-prot="meat">Beef</button>
+      <button type="button" class="fchip" data-prot="fish">Fish</button>
+    </div>
+    <div class="field" style="margin-top:8px;"><label>Dairy</label>
+      <select id="setDairy" style="width:100%;padding:8px;border:1px solid #ccd4cd;border-radius:8px;font-size:.92rem;">
+        <option value="any">No restriction</option>
+        <option value="light">Prefer non-dairy (light dairy okay)</option>
+        <option value="none">No dairy</option>
+      </select></div>
+    <div class="fchips" id="setToggles" style="margin-top:8px;">
+      <button type="button" class="fchip" data-tog="kosher">Kosher-style</button>
+      <button type="button" class="fchip" data-tog="healthy">Healthy focus</button>
+    </div>
     <div class="banner" id="shareHint" style="margin-top:16px;"></div>
     <div class="row" style="margin-top:18px;justify-content:flex-end;">
       <button class="btn secondary" data-close="settingsModal">Cancel</button>
@@ -204,6 +239,16 @@ details.prefs[open]>summary{ margin-bottom:4px;}
     <hr class="soft" style="margin:20px 0 14px;">
     <button class="btn ghost small" id="btnDedupe">🧹 Remove duplicate meals</button>
     <button class="btn ghost small" style="color:#a23b2b;" id="btnResetRatings">Reset all ratings &amp; history</button>
+    <button class="btn ghost small" id="btnUsage" style="display:none;">📊 Family usage</button>
+  </div>
+</div>
+
+<!-- Admin: usage dashboard (visible only to the admin account) -->
+<div class="modal-bg" id="usageModal">
+  <div class="modal" style="max-width:640px;position:relative;">
+    <button class="modal-x" data-close="usageModal" aria-label="Close">✕</button>
+    <h2>📊 Families using the app</h2>
+    <div id="usageList"></div>
   </div>
 </div>
 
@@ -376,7 +421,7 @@ const RECIPE_AI_WORKER_URL = "https://recipe-ai.dan-medwin.workers.dev";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, setPersistence, browserLocalPersistence, signInWithEmailAndPassword,
-         createUserWithEmailAndPassword, sendPasswordResetEmail,
+         createUserWithEmailAndPassword, sendPasswordResetEmail, deleteUser,
          onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, collection, doc, onSnapshot, setDoc, getDocs, getDoc,
          updateDoc, addDoc, deleteDoc, deleteField, writeBatch, arrayUnion }
@@ -681,7 +726,7 @@ async function aiRecipeFromIngredients(){
   const btn=$('btnAiRecipe'); btn.disabled=true; btn.textContent='Thinking…';
   try{
     const r=await fetch(RECIPE_AI_WORKER_URL,{ method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ task:'recipe', dish:name, ingredients:ing, notes }) });
+      body:JSON.stringify({ task:'recipe', dish:name, ingredients:ing, notes, profile:config.foodProfile||null }) });
     if(!r.ok) throw new Error('ai '+r.status);
     const d=await r.json(); if(!d.recipe) throw new Error('empty');
     $('amRecipe').value=d.recipe; toast('Recipe drafted — edit as needed.');
@@ -705,6 +750,8 @@ function setAddTab(tab){
 }
 /* ---- Add Dinners generator ---- */
 function openAddDinners(){
+  const allowed=(config.foodProfile&&config.foodProfile.proteins)||null;   // hide proteins the family excluded
+  document.querySelectorAll('#genTypes .fchip').forEach(c=>{ c.style.display=(!allowed||allowed.includes(c.dataset.gentype))?'':'none'; });
   document.querySelectorAll('#genTypes .fchip').forEach(c=>c.classList.toggle('on', genCriteria.types.has(c.dataset.gentype)));
   document.querySelectorAll('#genPrep .fchip').forEach(c=>c.classList.toggle('on', c.dataset.genprep===genCriteria.prep));
   document.querySelectorAll('#genToggles .fchip').forEach(c=>c.classList.toggle('on', !!genCriteria[c.dataset.gentoggle]));
@@ -741,7 +788,7 @@ async function generateIdeas(){
   $('btnGenIdeas').disabled=true; const rb=$('btnGenRefresh'); rb.disabled=true;
   try{
     const r=await fetch(RECIPE_AI_WORKER_URL,{ method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ task:'ideas', count:6, criteria:{ types:[...genCriteria.types], prep:genCriteria.prep, healthy:genCriteria.healthy, nondairy:genCriteria.nondairy, notes:genCriteria.notes }, have:genCriteria.have }) });
+      body:JSON.stringify({ task:'ideas', count:6, profile:config.foodProfile||null, criteria:{ types:[...genCriteria.types], prep:genCriteria.prep, healthy:genCriteria.healthy, nondairy:genCriteria.nondairy, notes:genCriteria.notes }, have:genCriteria.have }) });
     if(!r.ok) throw new Error('ai '+r.status);
     const d=await r.json(); genIdeas=Array.isArray(d.ideas)?d.ideas:[]; genAddedNames=new Set();
     if(!genIdeas.length) throw new Error('empty');
@@ -1140,12 +1187,36 @@ async function sendToInstacart(){
 
 /* ---------------- Settings UI ---------------- */
 let raterDraft=[];
+function isAdmin(){ return !!(auth&&auth.currentUser&&(auth.currentUser.email||'').toLowerCase()===LEGACY_FAMILY_EMAIL.toLowerCase()); }
 function openSettings(){
   $('setBatch').value=config.batch; $('setFamName').value=config.famName||'';
   raterDraft=config.raters.slice(); renderRatersEdit();
+  const p=config.foodProfile||{ proteins:['veg','poultry','meat','fish'], dairy:'any', kosher:false, healthy:false };
+  document.querySelectorAll('#setProteins .fchip').forEach(c=>c.classList.toggle('on',(p.proteins||[]).includes(c.dataset.prot)));
+  $('setDairy').value=p.dairy||'any';
+  document.querySelectorAll('#setToggles .fchip').forEach(c=>c.classList.toggle('on',!!p[c.dataset.tog]));
+  $('btnUsage').style.display = isAdmin()?'':'none';
   const email=(auth&&auth.currentUser&&auth.currentUser.email)||'';
   $('shareHint').innerHTML='👨‍👩‍👧‍👦 <strong>Add your family:</strong> have them open <strong>'+escapeHtml(location.origin+location.pathname)+'</strong> on their phone and sign in with '+(email?'<strong>'+escapeHtml(email)+'</strong>':'your family email')+' and your family password.';
   $('settingsModal').classList.add('show');
+}
+async function openUsage(){
+  $('usageModal').classList.add('show');
+  $('usageList').innerHTML='<div class="empty-hint">Loading…</div>';
+  try{
+    const snap=await getDocs(collection(db,'directory'));
+    const rows=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.lastActive||'').localeCompare(a.lastActive||''));
+    if(!rows.length){ $('usageList').innerHTML='<div class="empty-hint">No families yet.</div>'; return; }
+    const fmt=d=>{ const t=Date.parse(d); return isNaN(t)?'—':new Date(t).toLocaleDateString(); };
+    $('usageList').innerHTML =
+      `<div class="muted" style="font-size:.82rem;margin-bottom:10px;">${rows.length} famil${rows.length===1?'y':'ies'} · “last active” updates at most hourly per device</div>`
+      + rows.map(r=>`<div class="card" style="margin-bottom:8px;">
+          <div class="meal-head"><div class="flex-grow"><p class="meal-name" style="font-size:.95rem;">${escapeHtml(r.famName||'(no name)')}</p>
+            <p class="muted" style="font-size:.8rem;margin:0;">${escapeHtml(r.email||r.id)}</p></div>
+            <span class="avg">active ${fmt(r.lastActive)}</span></div>
+          <div class="muted" style="font-size:.8rem;">${r.members||0} member(s)${r.mealsCount!==undefined?' · '+r.mealsCount+' meals':''} · joined ${fmt(r.createdAt)}</div>
+        </div>`).join('');
+  }catch(e){ $('usageList').innerHTML='<div class="banner warn">Couldn’t load usage — check that the latest firestore.rules are published.</div>'; }
 }
 function renderRatersEdit(){
   $('ratersEdit').innerHTML=raterDraft.map((r,i)=>`<div class="row" style="margin-bottom:6px;"><input type="text" value="${escapeHtml(r)}" data-rdraft="${i}" class="flex-grow" style="flex:1;"><button class="btn ghost small" style="color:#a23b2b;" data-rdel="${i}">✕</button></div>`).join('');
@@ -1157,6 +1228,13 @@ async function saveSettings(){
   if(b>=1&&b<=14) next.batch=b;
   if(cleaned.length) next.raters=cleaned;
   next.famName=$('setFamName').value.trim();
+  const proteins=[...document.querySelectorAll('#setProteins .fchip.on')].map(c=>c.dataset.prot);
+  next.foodProfile={
+    proteins: proteins.length?proteins:['veg','poultry','meat','fish'],
+    dairy: $('setDairy').value,
+    kosher: document.querySelector('#setToggles [data-tog="kosher"]').classList.contains('on'),
+    healthy: document.querySelector('#setToggles [data-tog="healthy"]').classList.contains('on'),
+  };
   await writeConfig(next);
   closeModal('settingsModal'); toast("Settings saved.");
 }
@@ -1190,6 +1268,7 @@ document.addEventListener('click', e=>{
   if(t.dataset.gentype){ const k=t.dataset.gentype; genCriteria.types.has(k)?genCriteria.types.delete(k):genCriteria.types.add(k); t.classList.toggle('on'); }
   if(t.dataset.genprep){ genCriteria.prep=t.dataset.genprep; document.querySelectorAll('#genPrep .fchip').forEach(c=>c.classList.toggle('on', c===t)); }
   if(t.dataset.gentoggle){ const k=t.dataset.gentoggle; genCriteria[k]=!genCriteria[k]; t.classList.toggle('on'); }
+  if(t.dataset.prot!==undefined || t.dataset.tog!==undefined) t.classList.toggle('on');   // food-profile chips (sign-up + settings)
   if(t.dataset.addidea!==undefined) addIdea(+t.dataset.addidea);
   if(t.dataset.addplan) addToPlan(t.dataset.addplan);
   if(t.dataset.removeplan) removeFromPlan(t.dataset.removeplan);
@@ -1224,6 +1303,7 @@ $('btnAddRater').onclick=()=>{ raterDraft.push("New person"); renderRatersEdit()
 $('btnSaveSettings').onclick=saveSettings;
 $('btnResetRatings').onclick=resetRatings;
 $('btnDedupe').onclick=dedupeMeals;
+$('btnUsage').onclick=openUsage;
 $('choiceA').onclick=()=>resolveChoice('a');
 $('choiceB').onclick=()=>resolveChoice('b');
 $('choiceX').onclick=()=>resolveChoice(null);
@@ -1270,8 +1350,17 @@ async function doAuth(){
   try{
     await setPersistence(auth, browserLocalPersistence);
     if(authMode==='signup'){
+      const invite=$('authInvite').value.trim();
+      if(!invite){ $('authErr').textContent='Enter your invite code (ask whoever invited you).'; $('authBtn').disabled=false; $('authBtn').textContent='Create family'; return; }
       const members=$('authMembers').value.split(/[,\n]/).map(s=>s.trim()).filter(Boolean);
-      pendingSetup={ famName:$('authFamName').value.trim(), raters:members };
+      const proteins=[...document.querySelectorAll('#suProteins .fchip.on')].map(b=>b.dataset.prot);
+      const profile={
+        proteins: proteins.length?proteins:['veg','poultry','meat','fish'],
+        dairy: $('suDairy').value,
+        kosher: document.querySelector('#suToggles [data-tog="kosher"]').classList.contains('on'),
+        healthy: document.querySelector('#suToggles [data-tog="healthy"]').classList.contains('on'),
+      };
+      pendingSetup={ famName:$('authFamName').value.trim(), raters:members, profile, invite };
       await createUserWithEmailAndPassword(auth, email, pass);
     }else{
       await signInWithEmailAndPassword(auth, email, pass);
@@ -1303,6 +1392,9 @@ async function migrateLegacyData(){
   legacyHist.forEach(d=> writes.push([doc(historyCol(), d.id), d.data()]));
   if(legacyState.exists()) writes.push([stateDoc(), legacyState.data()]);
   writes.push([configDoc(), {...legacyCfg.data(), seeded:true, migratedLegacy:new Date().toISOString()}]);
+  writes.push([doc(db,'directory',famId), { famName:legacyCfg.data().famName||'', email:LEGACY_FAMILY_EMAIL,
+    members:(legacyCfg.data().raters||[]).length, mealsCount:legacyMeals.size,
+    createdAt:new Date().toISOString(), lastActive:new Date().toISOString() }]);
   for(let i=0;i<writes.length;i+=400){                    // Firestore batch limit is 500 writes
     const b=writeBatch(db);
     writes.slice(i,i+400).forEach(([ref,data])=> b.set(ref,data));
@@ -1310,20 +1402,49 @@ async function migrateLegacyData(){
   }
   return true;
 }
+/* Starter library filtered to the family's food profile. If filtering leaves
+   too few options (e.g. a fish-only family), vegetarian meals top it back up. */
+function seedMealsForProfile(p){
+  const prot=(p&&p.proteins&&p.proteins.length)?p.proteins:['veg','poultry','meat','fish'];
+  const dairyOk=m=>!(p&&p.dairy==='none'&&m.dairy);
+  let list=SEED_MEALS.filter(m=> prot.includes(m.type) && dairyOk(m));
+  if(list.length<5) list=list.concat(SEED_MEALS.filter(m=> m.type==='veg' && dairyOk(m) && !list.includes(m)));
+  return list;
+}
+let authNotice='';               // shown on the sign-in card after a failed setup
 async function ensureFamilyData(user){
   const cfg=await getDoc(configDoc());
-  if(cfg.exists() && cfg.data().seeded) return;            // already set up — never re-seed
+  if(cfg.exists() && cfg.data().seeded) return true;       // already set up — never re-seed
   if(user.email && user.email.toLowerCase()===LEGACY_FAMILY_EMAIL.toLowerCase()){
-    try{ if(await migrateLegacyData()) return; }catch(e){ console.warn('Legacy migration failed', e); }
+    try{ if(await migrateLegacyData()) return true; }catch(e){ console.warn('Legacy migration failed', e); }
   }
   const snap=await getDocs(mealsCol());
-  if(!snap.empty){ await setDoc(configDoc(), { seeded:true }, { merge:true }); return; }
-  const setup=pendingSetup||{}; pendingSetup=null;
+  if(!snap.empty){ await setDoc(configDoc(), { seeded:true }, { merge:true }); return true; }
+  const setup=pendingSetup; pendingSetup=null;
+  if(!setup){
+    authNotice='This account isn’t set up yet. Tap "Create your family" and include your invite code.';
+    await signOut(auth); return false;
+  }
+  const profile=setup.profile||{ proteins:['veg','poultry','meat','fish'], dairy:'any', kosher:false, healthy:false };
   const raters=(setup.raters&&setup.raters.length)?setup.raters:PLACEHOLDER_RATERS.slice();
+  const now=new Date().toISOString();
   const b=writeBatch(db);
-  SEED_MEALS.forEach((m,i)=> b.set(doc(mealsCol()), {...m, recipe:RECIPES[m.name]||'', ratings:{}, createdAt:1000+i, prep:PREP_SEED[m.name]||''}));
-  b.set(configDoc(), { raters, batch:3, famName:setup.famName||'', seeded:true }, {merge:true});
-  await b.commit();
+  seedMealsForProfile(profile).forEach((m,i)=> b.set(doc(mealsCol()), {...m, recipe:RECIPES[m.name]||'', ratings:{}, createdAt:1000+i, prep:PREP_SEED[m.name]||''}));
+  // firestore.rules only allows this config create when inviteCode matches
+  // the admin/invite doc — a wrong code rejects the whole batch.
+  b.set(configDoc(), { raters, batch:3, famName:setup.famName||'', foodProfile:profile, inviteCode:setup.invite, seeded:true }, {merge:true});
+  b.set(doc(db,'directory',famId), { famName:setup.famName||'', email:user.email||'', members:raters.length,
+    mealsCount:seedMealsForProfile(profile).length, createdAt:now, lastActive:now });
+  try{ await b.commit(); }
+  catch(e){
+    if(e && e.code==='permission-denied'){
+      authNotice='That invite code isn’t right — check with the person who invited you, then create your family again.';
+      try{ await deleteUser(user); }catch(_){ await signOut(auth); }   // undo the half-created account
+      return false;
+    }
+    throw e;
+  }
+  return true;
 }
 let recipesBackfilled=false;
 async function backfillRecipes(){
@@ -1338,7 +1459,24 @@ async function backfillRecipes(){
   });
   if(n){ try{ await b.commit(); }catch(e){} }
 }
+/* Upsert this family's usage-directory entry (admin dashboard data source).
+   Throttled to once an hour per device. */
+let dirTouched=false;
+async function touchDirectory(){
+  if(dirTouched||!famId) return; dirTouched=true;
+  try{
+    const key='fdp_dir_ts_'+famId;
+    if(Date.now()-(+localStorage.getItem(key)||0) < 3600000) return;
+    await setDoc(doc(db,'directory',famId), {
+      famName:config.famName||'', email:(auth.currentUser&&auth.currentUser.email)||'',
+      members:(config.raters||[]).length, mealsCount:meals.length,
+      lastActive:new Date().toISOString(),
+    }, {merge:true});
+    localStorage.setItem(key, String(Date.now()));
+  }catch(e){}
+}
 function startListeners(){
+  setTimeout(touchDirectory, 4000);   // after the first config + meals snapshots land
   onSnapshot(mealsCol(), s=>{ meals=s.docs.map(d=>({id:d.id, ...d.data(), ratings:d.data().ratings||{}, prefs:d.data().prefs||{}})); setSync(true); renderAll(); backfillRecipes(); }, ()=>setSync(false));
   onSnapshot(configDoc(), s=>{
     if(s.exists()){
@@ -1370,14 +1508,19 @@ if(NOT_CONFIGURED){
       localStorage.setItem('fdp_email', user.email||'');
       // "Who am I" is remembered per family; adopt the pre-multi-family key once.
       myName = localStorage.getItem('fdp_me_'+famId) || localStorage.getItem('fdp_me') || '';
+      let ok=true;
+      try{ ok=await ensureFamilyData(user); }catch(e){ console.warn('Family setup failed', e); }
+      if(!ok) return;   // signed out inside; the signed-out branch below shows the notice
       $('authOverlay').style.display='none'; $('appWrap').style.display='';
-      try{ await ensureFamilyData(user); }catch(e){ console.warn('Family setup failed', e); }
       listenersStarted=true;
       startListeners();
     }else if(listenersStarted){
       location.reload();                       // detach this family's listeners cleanly
     }else{
       $('authOverlay').style.display='flex'; $('appWrap').style.display='none';
+      $('authBtn').disabled=false;
+      $('authBtn').textContent = authMode==='signup' ? 'Create family' : 'Sign in';
+      if(authNotice){ $('authErr').textContent=authNotice; authNotice=''; }
     }
   });
 }

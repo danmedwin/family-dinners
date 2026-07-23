@@ -11,7 +11,24 @@
 // NEVER be put in index.html or committed to GitHub. See RECIPE_AI_SETUP.md.
 // ============================================================================
 
-const ALLOW_ORIGIN = "*"; // optional: lock to your site, e.g. "https://techrabbi.org"
+const ALLOW_ORIGIN = "https://techrabbi.org"; // locked to the hosted app; use "*" for local dev
+
+// Turns a family's food profile (from their app Settings) into standing prompt
+// rules. Families created before profiles existed send none — they get the
+// original defaults.
+function profileText(p) {
+  if (!p || typeof p !== "object")
+    return "Keep them Reform-kosher: no pork, no shellfish; meat and dairy together is allowed but prefer non-dairy.";
+  const typeMap = { veg: "vegetarian", poultry: "poultry (chicken/turkey)", meat: "beef", fish: "fish" };
+  const parts = [];
+  if (Array.isArray(p.proteins) && p.proteins.length && p.proteins.length < 4)
+    parts.push("use ONLY these protein categories: " + p.proteins.map((t) => typeMap[t] || t).join(", "));
+  if (p.dairy === "none") parts.push("strictly no dairy ingredients");
+  else if (p.dairy === "light") parts.push("prefer non-dairy; light dairy is okay");
+  if (p.kosher) parts.push("kosher-style: no pork, no shellfish, and never combine meat with dairy");
+  if (p.healthy) parts.push("lean toward healthy dishes");
+  return parts.length ? "The family's standing food rules — always follow them: " + parts.join("; ") + "." : "";
+}
 
 function cors() {
   return {
@@ -56,10 +73,11 @@ export default {
         : String(body.ingredients || "");
       if (!ingredients.trim()) return json({ error: "no ingredients provided" }, 400);
       const notes = String(body.notes || "").slice(0, 500);
+      const recProfile = body.profile ? " " + profileText(body.profile) : "";
       prompt =
         `Write a simple home dinner recipe for "${dish}" using these ingredients: ${ingredients}. ` +
         `You don't need to use every ingredient — use what makes a good dish, and you may add ` +
-        `common pantry staples.` + (notes ? ` Notes: ${notes}.` : "") +
+        `common pantry staples.` + recProfile + (notes ? ` Notes: ${notes}.` : "") +
         ` Keep it family-friendly and concise: short numbered steps, no headings, no ` +
         `commentary. Return ONLY the recipe steps.`;
     } else if (task === "ideas") {
@@ -78,8 +96,8 @@ export default {
       if (c.nondairy) constraints.push("non-dairy (avoid heavy dairy like alfredo)");
       if (c.notes) constraints.push("notes: " + String(c.notes).slice(0, 200));
       prompt =
-        `Suggest ${count} family dinner ideas. Keep them Reform-kosher: no pork, no shellfish; ` +
-        `meat and dairy together is allowed but prefer non-dairy. Constraints: ${constraints.join("; ")}.` +
+        `Suggest ${count} family dinner ideas. ${profileText(body.profile)} ` +
+        `Constraints: ${constraints.join("; ")}.` +
         (have ? ` The family has these ingredients on hand — build dishes mainly around them; you do ` +
           `NOT need to use all of them, and you may add common pantry items: ${have}.` : "") +
         ` Return ONLY a JSON array (no markdown fences, no commentary) of exactly ${count} objects, ` +

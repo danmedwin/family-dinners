@@ -3,30 +3,74 @@ rules_version = '2';
 // Family Dinner Planner — multi-family rules.
 // Publish these in Firebase Console → Firestore Database → Rules.
 //
-// Each family shares ONE Auth account, and all of that family's data lives
-// under families/{uid}. A signed-in account can only touch its own subtree,
-// so families are fully isolated from each other.
+// Each family shares ONE Auth account; all of that family's data lives under
+// families/{uid}. A signed-in account can only touch its own subtree.
+// New families can only complete setup with the invite code stored in the
+// admin/invite doc (create that doc in the console: field "code" = your code).
+// The admin (original family) account can additionally READ everything, which
+// powers the in-app usage dashboard.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    match /families/{familyId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == familyId;
+    function signedIn() { return request.auth != null; }
+    function own(familyId) { return signedIn() && request.auth.uid == familyId; }
+    function isAdmin() { return signedIn() && request.auth.token.email == 'dinners@medw.in'; }
+    function validInvite() {
+      return request.resource.data.inviteCode is string
+        && exists(/databases/$(database)/documents/admin/invite)
+        && request.resource.data.inviteCode == get(/databases/$(database)/documents/admin/invite).data.code;
+    }
+
+    match /families/{familyId} {
+      match /meals/{docId} {
+        allow read, write: if own(familyId);
+        allow read: if isAdmin();
+      }
+      match /history/{docId} {
+        allow read, write: if own(familyId);
+        allow read: if isAdmin();
+      }
+      match /meta/state {
+        allow read, write: if own(familyId);
+        allow read: if isAdmin();
+      }
+      match /meta/config {
+        // Creating the config doc is what "founds" a family — it requires the
+        // invite code (the admin account is exempt, for the legacy migration).
+        allow create: if own(familyId) && (isAdmin() || validInvite());
+        allow read, update, delete: if own(familyId);
+        allow read: if isAdmin();
+      }
+    }
+
+    // Lightweight usage directory: each family upserts its own entry
+    // (name, members, meal count, last-active); only the admin reads it.
+    match /directory/{familyId} {
+      allow create, update: if own(familyId);
+      allow read: if isAdmin();
+    }
+
+    // admin/invite {code: "..."} — edited only via the Firebase console.
+    // Clients can never read it; the validInvite() get() above runs
+    // server-side, so the code is never exposed to browsers.
+    match /admin/{docId} {
+      allow read, write: if false;
     }
 
     // Legacy pre-multi-family data (root collections). Read-only, and only
     // for the original family account so it can migrate itself into
     // families/{uid} on its next sign-in. Safe to delete these three blocks
-    // (and the root collections) once the migration has happened.
+    // (and the root collections) once the migration is verified.
     match /app/{docId} {
-      allow read: if request.auth != null && request.auth.token.email == 'dinners@medw.in';
+      allow read: if isAdmin();
       allow write: if false;
     }
     match /meals/{docId} {
-      allow read: if request.auth != null && request.auth.token.email == 'dinners@medw.in';
+      allow read: if isAdmin();
       allow write: if false;
     }
     match /history/{docId} {
-      allow read: if request.auth != null && request.auth.token.email == 'dinners@medw.in';
+      allow read: if isAdmin();
       allow write: if false;
     }
   }
