@@ -1,11 +1,12 @@
 // ============================================================================
 // Recipe AI backend for the Family Dinner Planner — Cloudflare Worker.
 //
-// Handles four tasks:
+// Handles five tasks:
 //   task: "revise"      {dish, recipe, note}          -> {recipe}
 //   task: "ingredients" {dish, recipe}                -> {ingredients:[...]}
 //   task: "recipe"      {dish, ingredients[], notes}  -> {recipe}
 //   task: "ideas"       {count, criteria, have}       -> {ideas:[{name,desc,type,dairy,healthy,prep,ing,recipe}]}
+//   task: "import"      {url}                         -> {idea:{name,desc,type,dairy,healthy,prep,ing,recipe}}
 //
 // Your Anthropic API key stays SECRET here as an environment variable. It must
 // NEVER be put in index.html or committed to GitHub. See RECIPE_AI_SETUP.md.
@@ -105,6 +106,54 @@ export default {
         `"meat","fish"), "dairy" (boolean; true only if it needs real dairy), "healthy" (boolean), ` +
         `"prep" (one of "under 15 min","15–30 min","30–45 min"), "ing" (array of simple grocery item ` +
         `names, no quantities), "recipe" (string of short numbered steps separated by \\n). Return only the JSON array.`;
+    } else if (task === "import") {
+      mode = "import";
+      maxTokens = 2500;
+      let url;
+      try {
+        url = new URL(String(body.url || "").trim());
+        if (url.protocol !== "https:" && url.protocol !== "http:") throw 0;
+      } catch (e) {
+        return json({ error: "invalid URL" }, 400);
+      }
+      let page;
+      try {
+        const pr = await fetch(url.toString(), {
+          headers: {
+            // some recipe sites block requests with no browser-y UA
+            "User-Agent": "Mozilla/5.0 (compatible; FamilyDinnerPlanner/1.0)",
+            "Accept": "text/html,application/xhtml+xml",
+          },
+          redirect: "follow",
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!pr.ok) return json({ error: "could not load that page (" + pr.status + ")" }, 502);
+        page = await pr.text();
+      } catch (e) {
+        return json({ error: "could not reach that site" }, 502);
+      }
+      // Prefer structured recipe data (JSON-LD) when the site provides it; also
+      // include the visible text as a fallback, stripped of markup.
+      const ldBlocks = [...page.matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)]
+        .map((m) => m[1].trim()).filter((s) => /recipe/i.test(s)).join("\n").slice(0, 20000);
+      const text = page
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&#?\w+;/g, " ")
+        .replace(/\s+/g, " ")
+        .slice(0, 25000);
+      prompt =
+        `Extract the recipe from this web page. ` +
+        (ldBlocks ? `STRUCTURED DATA (most reliable):\n${ldBlocks}\n\n` : "") +
+        `PAGE TEXT:\n${text}\n\n` +
+        `Return ONLY a JSON object (no markdown fences, no commentary) with keys: ` +
+        `"name" (string), "desc" (one short sentence), "type" (one of "veg","poultry","meat","fish" — ` +
+        `use "meat" for beef/lamb/pork, "veg" if no meat or fish), "dairy" (boolean; true only if it ` +
+        `needs real dairy), "healthy" (boolean), "prep" (one of "under 15 min","15–30 min","30–45 min","45+ min"; ` +
+        `estimate from the recipe's prep+cook time), "ing" (array of simple grocery item names, no quantities), ` +
+        `"recipe" (string of short numbered steps separated by \\n, condensed from the page's instructions). ` +
+        `If the page contains no recipe at all, return {"error":"no recipe found"}.`;
     } else if (task === "align") {
       mode = "align";
       maxTokens = 600;
@@ -170,6 +219,16 @@ export default {
       catch (e) { const s = txt.indexOf("["), ei = txt.lastIndexOf("]"); if (s >= 0 && ei > s) { try { issues = JSON.parse(txt.slice(s, ei + 1)); } catch (e2) {} } }
       if (!Array.isArray(issues)) issues = [];
       return json({ issues });
+    }
+    if (mode === "import") {
+      let txt = out.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```\s*$/, "").trim();
+      let idea = null;
+      try { idea = JSON.parse(txt); }
+      catch (e) { const s = txt.indexOf("{"), ei = txt.lastIndexOf("}"); if (s >= 0 && ei > s) { try { idea = JSON.parse(txt.slice(s, ei + 1)); } catch (e2) {} } }
+      if (!idea || typeof idea !== "object" || idea.error || !idea.name) {
+        return json({ error: (idea && idea.error) || "no recipe found on that page" }, 422);
+      }
+      return json({ idea });
     }
     if (mode === "ideas") {
       let txt = out.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```\s*$/, "").trim();

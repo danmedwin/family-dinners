@@ -268,7 +268,19 @@ details.prefs[open]>summary{ margin-bottom:4px;}
     <h2>Add dinners</h2>
     <div class="row" style="gap:6px;margin-bottom:14px;">
       <button class="btn add-tab" data-addtab="gen">✨ Generate</button>
+      <button class="btn secondary add-tab" data-addtab="url">🔗 From a link</button>
       <button class="btn secondary add-tab" data-addtab="own">✍️ Add your own</button>
+    </div>
+
+    <div id="addTabUrl" style="display:none;">
+      <p class="muted" style="font-size:.85rem;margin:0 0 12px;">Paste a link to any recipe page — we'll pull out the name, ingredients, and steps for you to review before adding.</p>
+      <div class="field"><label>Recipe URL</label>
+        <input type="text" id="impUrl" inputmode="url" placeholder="https://cooking.example.com/best-shakshuka" /></div>
+      <div class="row" style="gap:8px;align-items:center;">
+        <button class="btn" id="btnImportUrl">Import recipe</button>
+        <button class="btn secondary" data-close="addDinnersModal" style="margin-left:auto;">Close</button>
+      </div>
+      <div id="impResult" style="margin-top:14px;"></div>
     </div>
 
     <div id="addTabGen">
@@ -744,9 +756,48 @@ function askChoice(title, msg, optA, optB){
 function resolveChoice(v){ closeModal('choiceModal'); const r=choiceResolve; choiceResolve=null; if(r) r(v); }
 function setAddTab(tab){
   $('addTabGen').style.display = tab==='gen' ? '' : 'none';
+  $('addTabUrl').style.display = tab==='url' ? '' : 'none';
   $('addTabOwn').style.display = tab==='own' ? '' : 'none';
   document.querySelectorAll('.add-tab').forEach(b=> b.classList.toggle('secondary', b.dataset.addtab!==tab));
   if(tab==='own'){ const show=RECIPE_AI_WORKER_URL?'':'none'; const a=$('amIngAiRow'), c=$('amRecipeAiRow'); if(a) a.style.display=show; if(c) c.style.display=show; }
+}
+/* ---- Import a recipe from a URL ---- */
+let impIdea=null, impSourceUrl='';
+function renderImpResult(added){
+  const res=$('impResult'); if(!impIdea){ res.innerHTML=''; return; }
+  const idea=impIdea;
+  res.innerHTML=`<div class="card">
+    <div class="meal-head"><div class="flex-grow"><p class="meal-name">${escapeHtml(idea.name||'Dinner')}</p><p class="meal-desc">${escapeHtml(idea.desc||'')}</p></div>
+    <button class="btn ${added?'secondary':''} small" id="btnAddImported" ${added?'disabled':''}>${added?'✓ Added':'＋ Add'}</button></div>
+    ${ideaTags(idea)}
+    <details class="ingredients"><summary>Ingredients${(idea.ing&&idea.ing.length)?' ('+idea.ing.length+')':''}</summary><ul>${(idea.ing||[]).map(x=>`<li>${escapeHtml(String(x))}</li>`).join('')}</ul></details>
+    ${idea.recipe?`<details class="ingredients"><summary>Recipe</summary><div style="white-space:pre-wrap;margin-top:6px;">${escapeHtml(idea.recipe)}</div></details>`:''}
+    <p class="muted" style="font-size:.76rem;margin:8px 0 0;">From ${escapeHtml(impSourceUrl)}</p>
+  </div>`;
+}
+async function importFromUrl(){
+  const res=$('impResult');
+  if(!RECIPE_AI_WORKER_URL){ res.innerHTML='<div class="banner warn">Importing needs the recipe Worker (RECIPE_AI_WORKER_URL).</div>'; return; }
+  const url=$('impUrl').value.trim();
+  if(!url){ res.innerHTML='<div class="banner warn">Paste a recipe link first.</div>'; return; }
+  const btn=$('btnImportUrl'); btn.disabled=true; btn.textContent='Importing…';
+  impIdea=null; res.innerHTML='<div class="empty-hint">Fetching the recipe…</div>';
+  try{
+    const r=await fetch(RECIPE_AI_WORKER_URL,{ method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ task:'import', url }) });
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok || !d.idea) throw new Error(d.error||'import failed');
+    impIdea=d.idea; impSourceUrl=url; renderImpResult(false);
+  }catch(e){ res.innerHTML='<div class="banner warn">Couldn’t import that page'+(e.message&&e.message!=='import failed'?' — '+escapeHtml(String(e.message)):'')+'. Try another link, or copy the recipe into “Add your own”.</div>'; }
+  btn.disabled=false; btn.textContent='Import recipe';
+}
+async function addImportedMeal(){
+  const idea=impIdea; if(!idea) return;
+  const type=['veg','poultry','meat','fish'].includes(idea.type)?idea.type:'veg';
+  await addDoc(mealsCol(), { name:idea.name||'New dinner', desc:idea.desc||'', type, dairy:!!idea.dairy, healthy:idea.healthy!==false,
+    ing:Array.isArray(idea.ing)?idea.ing.map(String):[], recipe:idea.recipe||'', prep:normPrep(idea.prep),
+    sourceUrl:impSourceUrl, ratings:{}, prefs:{}, createdAt:Date.now() });
+  renderImpResult(true); toast('Added to Library.');
 }
 /* ---- Add Dinners generator ---- */
 function openAddDinners(){
@@ -1265,6 +1316,8 @@ document.addEventListener('click', e=>{
   if(t.id==='btnAddDinners') openAddDinners();
   if(t.dataset.addtab) setAddTab(t.dataset.addtab);
   if(t.id==='btnGenIdeas' || t.id==='btnGenRefresh') generateIdeas();
+  if(t.id==='btnImportUrl') importFromUrl();
+  if(t.id==='btnAddImported') addImportedMeal();
   if(t.dataset.gentype){ const k=t.dataset.gentype; genCriteria.types.has(k)?genCriteria.types.delete(k):genCriteria.types.add(k); t.classList.toggle('on'); }
   if(t.dataset.genprep){ genCriteria.prep=t.dataset.genprep; document.querySelectorAll('#genPrep .fchip').forEach(c=>c.classList.toggle('on', c===t)); }
   if(t.dataset.gentoggle){ const k=t.dataset.gentoggle; genCriteria[k]=!genCriteria[k]; t.classList.toggle('on'); }
@@ -1312,6 +1365,7 @@ $('btnAiRevise').onclick=aiReviseRecipe;
 $('btnSaveIng').onclick=saveIngFromModal;
 $('btnIngFromRecipe').onclick=aiIngFromRecipe;
 $('btnIngCheck').onclick=aiIngCheck;
+$('impUrl').addEventListener('keydown',e=>{ if(e.key==='Enter') importFromUrl(); });
 $('btnSignout').onclick=()=>{ if(auth) signOut(auth); };
 [...document.querySelectorAll('.modal-bg')].forEach(bg=>bg.addEventListener('click',e=>{ if(e.target===bg){ bg.classList.remove('show'); if(bg.id==='choiceModal') resolveChoice(null); } }));
 
