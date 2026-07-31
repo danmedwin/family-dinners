@@ -1,17 +1,35 @@
 // ============================================================================
 // Recipe AI backend for the Family Dinner Planner — Cloudflare Worker.
 //
-// Handles four tasks:
+// Handles five tasks:
 //   task: "revise"      {dish, recipe, note}          -> {recipe}
 //   task: "ingredients" {dish, recipe}                -> {ingredients:[...]}
 //   task: "recipe"      {dish, ingredients[], notes}  -> {recipe}
 //   task: "ideas"       {count, criteria, have}       -> {ideas:[{name,desc,type,dairy,healthy,prep,ing,recipe}]}
+//   task: "import"      {url}                         -> {idea:{name,desc,type,dairy,healthy,prep,ing,recipe}}
 //
 // Your Anthropic API key stays SECRET here as an environment variable. It must
 // NEVER be put in index.html or committed to GitHub. See RECIPE_AI_SETUP.md.
 // ============================================================================
 
-const ALLOW_ORIGIN = "*"; // optional: lock to your site, e.g. "https://techrabbi.org"
+const ALLOW_ORIGIN = "https://techrabbi.org"; // locked to the hosted app; use "*" for local dev
+
+// Turns a family's food profile (from their app Settings) into standing prompt
+// rules. Families created before profiles existed send none — they get the
+// original defaults.
+function profileText(p) {
+  if (!p || typeof p !== "object")
+    return "Keep them Reform-kosher: no pork, no shellfish; meat and dairy together is allowed but prefer non-dairy.";
+  const typeMap = { veg: "vegetarian", poultry: "poultry (chicken/turkey)", meat: "beef", fish: "fish" };
+  const parts = [];
+  if (Array.isArray(p.proteins) && p.proteins.length && p.proteins.length < 4)
+    parts.push("use ONLY these protein categories: " + p.proteins.map((t) => typeMap[t] || t).join(", "));
+  if (p.dairy === "none") parts.push("strictly no dairy ingredients");
+  else if (p.dairy === "light") parts.push("prefer non-dairy; light dairy is okay");
+  if (p.kosher) parts.push("kosher-style: no pork, no shellfish, and never combine meat with dairy");
+  if (p.healthy) parts.push("lean toward healthy dishes");
+  return parts.length ? "The family's standing food rules — always follow them: " + parts.join("; ") + "." : "";
+}
 
 function cors() {
   return {
@@ -56,10 +74,11 @@ export default {
         : String(body.ingredients || "");
       if (!ingredients.trim()) return json({ error: "no ingredients provided" }, 400);
       const notes = String(body.notes || "").slice(0, 500);
+      const recProfile = body.profile ? " " + profileText(body.profile) : "";
       prompt =
         `Write a simple home dinner recipe for "${dish}" using these ingredients: ${ingredients}. ` +
         `You don't need to use every ingredient — use what makes a good dish, and you may add ` +
-        `common pantry staples.` + (notes ? ` Notes: ${notes}.` : "") +
+        `common pantry staples.` + recProfile + (notes ? ` Notes: ${notes}.` : "") +
         ` Keep it family-friendly and concise: short numbered steps, no headings, no ` +
         `commentary. Return ONLY the recipe steps.`;
     } else if (task === "ideas") {
@@ -78,8 +97,8 @@ export default {
       if (c.nondairy) constraints.push("non-dairy (avoid heavy dairy like alfredo)");
       if (c.notes) constraints.push("notes: " + String(c.notes).slice(0, 200));
       prompt =
-        `Suggest ${count} family dinner ideas. Keep them Reform-kosher: no pork, no shellfish; ` +
-        `meat and dairy together is allowed but prefer non-dairy. Constraints: ${constraints.join("; ")}.` +
+        `Suggest ${count} family dinner ideas. ${profileText(body.profile)} ` +
+        `Constraints: ${constraints.join("; ")}.` +
         (have ? ` The family has these ingredients on hand — build dishes mainly around them; you do ` +
           `NOT need to use all of them, and you may add common pantry items: ${have}.` : "") +
         ` Return ONLY a JSON array (no markdown fences, no commentary) of exactly ${count} objects, ` +
@@ -87,6 +106,54 @@ export default {
         `"meat","fish"), "dairy" (boolean; true only if it needs real dairy), "healthy" (boolean), ` +
         `"prep" (one of "under 15 min","15–30 min","30–45 min"), "ing" (array of simple grocery item ` +
         `names, no quantities), "recipe" (string of short numbered steps separated by \\n). Return only the JSON array.`;
+    } else if (task === "import") {
+      mode = "import";
+      maxTokens = 2500;
+      let url;
+      try {
+        url = new URL(String(body.url || "").trim());
+        if (url.protocol !== "https:" && url.protocol !== "http:") throw 0;
+      } catch (e) {
+        return json({ error: "invalid URL" }, 400);
+      }
+      let page;
+      try {
+        const pr = await fetch(url.toString(), {
+          headers: {
+            // some recipe sites block requests with no browser-y UA
+            "User-Agent": "Mozilla/5.0 (compatible; FamilyDinnerPlanner/1.0)",
+            "Accept": "text/html,application/xhtml+xml",
+          },
+          redirect: "follow",
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!pr.ok) return json({ error: "could not load that page (" + pr.status + ")" }, 502);
+        page = await pr.text();
+      } catch (e) {
+        return json({ error: "could not reach that site" }, 502);
+      }
+      // Prefer structured recipe data (JSON-LD) when the site provides it; also
+      // include the visible text as a fallback, stripped of markup.
+      const ldBlocks = [...page.matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)]
+        .map((m) => m[1].trim()).filter((s) => /recipe/i.test(s)).join("\n").slice(0, 20000);
+      const text = page
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&#?\w+;/g, " ")
+        .replace(/\s+/g, " ")
+        .slice(0, 25000);
+      prompt =
+        `Extract the recipe from this web page. ` +
+        (ldBlocks ? `STRUCTURED DATA (most reliable):\n${ldBlocks}\n\n` : "") +
+        `PAGE TEXT:\n${text}\n\n` +
+        `Return ONLY a JSON object (no markdown fences, no commentary) with keys: ` +
+        `"name" (string), "desc" (one short sentence), "type" (one of "veg","poultry","meat","fish" — ` +
+        `use "meat" for beef/lamb/pork, "veg" if no meat or fish), "dairy" (boolean; true only if it ` +
+        `needs real dairy), "healthy" (boolean), "prep" (one of "under 15 min","15–30 min","30–45 min","45+ min"; ` +
+        `estimate from the recipe's prep+cook time), "ing" (array of simple grocery item names, no quantities), ` +
+        `"recipe" (string of short numbered steps separated by \\n, condensed from the page's instructions). ` +
+        `If the page contains no recipe at all, return {"error":"no recipe found"}.`;
     } else if (task === "align") {
       mode = "align";
       maxTokens = 600;
@@ -152,6 +219,16 @@ export default {
       catch (e) { const s = txt.indexOf("["), ei = txt.lastIndexOf("]"); if (s >= 0 && ei > s) { try { issues = JSON.parse(txt.slice(s, ei + 1)); } catch (e2) {} } }
       if (!Array.isArray(issues)) issues = [];
       return json({ issues });
+    }
+    if (mode === "import") {
+      let txt = out.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```\s*$/, "").trim();
+      let idea = null;
+      try { idea = JSON.parse(txt); }
+      catch (e) { const s = txt.indexOf("{"), ei = txt.lastIndexOf("}"); if (s >= 0 && ei > s) { try { idea = JSON.parse(txt.slice(s, ei + 1)); } catch (e2) {} } }
+      if (!idea || typeof idea !== "object" || idea.error || !idea.name) {
+        return json({ error: (idea && idea.error) || "no recipe found on that page" }, 422);
+      }
+      return json({ idea });
     }
     if (mode === "ideas") {
       let txt = out.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```\s*$/, "").trim();
