@@ -153,6 +153,7 @@ details.prefs[open]>summary{ margin-bottom:4px;}
     <div id="authErr"></div>
     <p style="margin:14px 0 0;font-size:.85rem;"><a href="#" id="authToggle" style="color:#2f7d4f;font-weight:600;text-decoration:none;">New here? Create your family →</a></p>
     <p style="margin:8px 0 0;font-size:.8rem;"><a href="#" id="authForgot" style="color:#8a978d;text-decoration:none;">Forgot password?</a></p>
+    <p style="margin:8px 0 0;font-size:.8rem;"><a href="guide.html" style="color:#8a978d;text-decoration:none;">📖 New here? See how it works</a></p>
   </div>
 </div>
 
@@ -1248,7 +1249,7 @@ function openSettings(){
   document.querySelectorAll('#setToggles .fchip').forEach(c=>c.classList.toggle('on',!!p[c.dataset.tog]));
   $('btnUsage').style.display = isAdmin()?'':'none';
   const email=(auth&&auth.currentUser&&auth.currentUser.email)||'';
-  $('shareHint').innerHTML='👨‍👩‍👧‍👦 <strong>Add your family:</strong> have them open <strong>'+escapeHtml(location.origin+location.pathname)+'</strong> on their phone and sign in with '+(email?'<strong>'+escapeHtml(email)+'</strong>':'your family email')+' and your family password.';
+  $('shareHint').innerHTML='👨‍👩‍👧‍👦 <strong>Add your family:</strong> have them open <strong>'+escapeHtml(location.origin+location.pathname)+'</strong> on their phone and sign in with '+(email?'<strong>'+escapeHtml(email)+'</strong>':'your family email')+' and your family password. New folks can read the <a href="guide.html" target="_blank" rel="noopener">how-to guide</a>.';
   $('settingsModal').classList.add('show');
 }
 async function openUsage(){
