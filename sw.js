@@ -1,7 +1,7 @@
 // Service worker for the Family Dinner Planner (PWA).
 // Network-first for GET requests, with a cache fallback so the app shell loads offline.
 // Firebase reads/writes (POST/websocket) always go to the network.
-const CACHE = "fdp-v4";
+const CACHE = "fdp-v5";
 
 self.addEventListener("install", (e) => { self.skipWaiting(); });
 self.addEventListener("activate", (e) => {
