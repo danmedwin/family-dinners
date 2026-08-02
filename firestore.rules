@@ -34,6 +34,10 @@ service cloud.firestore {
         allow read, write: if own(familyId);
         allow read: if isAdmin();
       }
+      match /meta/shopping {
+        allow read, write: if own(familyId);
+        allow read: if isAdmin();
+      }
       match /meta/config {
         // Creating the config doc is what "founds" a family — it requires the
         // invite code (the admin account is exempt, for the legacy migration).

@@ -457,6 +457,7 @@ const historyCol = () => collection(db,'families',famId,'history');
 const mealDoc    = (id) => doc(db,'families',famId,'meals',id);
 const configDoc  = () => doc(db,'families',famId,'meta','config');
 const stateDoc   = () => doc(db,'families',famId,'meta','state');
+const shoppingDoc= () => doc(db,'families',famId,'meta','shopping');
 
 /* ---------------- Seed library (Reform-kosher, non-dairy priority, healthy) ---------------- */
 const SEED_MEALS = [
@@ -539,8 +540,8 @@ let config = { raters:PLACEHOLDER_RATERS.slice(), batch:3, famName:'' };
 let plan = [];                  // [mealId,...] (shared)
 let assign = {};                // { mealId: 'YYYY-MM-DD' } day assignment (shared)
 let history = [];               // [{date, mealIds:[...]}]
-let shoppingState = [];
-let tappedItems = new Set();
+let shopping = null;            // synced family shopping list: {order:[k], items:{k:{name,count,meals,checked,tapped}}, builtAt, builtBy}
+let chipsOpen = false;          // Instacart tap-through chips visible on THIS device
 
 /* ---------------- DOM helpers ---------------- */
 const $ = id => document.getElementById(id);
@@ -860,7 +861,7 @@ async function approvePlan(){
   if(!plan.length) return;
   const assignedIds=plan.filter(id=>assign[id]);
   const undated=plan.filter(id=>!assign[id]);
-  if(!assignedIds.length){ buildCalendar(); alert('Assign a day to at least one dinner before approving.'); window.scrollTo({ top:$('calendarArea').offsetTop-20, behavior:'smooth' }); return; }
+  if(!assignedIds.length){ alert('Assign a day to at least one dinner before approving.'); return; }
   // same-day conflicts
   const byDate={}; assignedIds.forEach(id=>{ (byDate[assign[id]]=byDate[assign[id]]||[]).push(id); });
   const conflicts=Object.entries(byDate).filter(([d,ids])=>ids.length>1);
@@ -876,9 +877,7 @@ async function approvePlan(){
   const b=writeBatch(db);
   assignedIds.forEach(id=>{ b.update(mealDoc(id), { lastPlanned: assign[id] }); });
   try{ await b.commit(); }catch(e){}
-  buildShoppingList();
-  buildCalendar();
-  toast("Plan approved — calendar + shopping list ready below.");
+  toast("Plan approved & recorded — grab the calendar or build the shopping list below.");
   window.scrollTo({ top:$('calendarArea').offsetTop-20, behavior:'smooth' });
 }
 async function saveMeal(){
@@ -953,6 +952,7 @@ function renderPlan(){
   const pm=plan.map(id=>meals.find(m=>m.id===id)).filter(Boolean);
   if(!pm.length){
     area.innerHTML=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">Suggested Plan <button class="btn ghost small" id="btnPropose">🔄 Suggest</button></div><div class="empty-hint">No plan yet — tap 🔄 Suggest, or add meals from the Library.</div>`;
+    renderCalendarCard(); renderShopping();
     return;
   }
   area.innerHTML=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">Suggested Plan <button class="btn ghost small" id="btnPropose" title="Swap all">🔄 Swap all</button></div>`
@@ -969,7 +969,8 @@ function renderPlan(){
     </div>
     <div class="rate-row" style="gap:8px;"><span class="rate-name">${meValid()?escapeHtml(myName)+' (you)':'Your vote'}</span>${meValid()?thumbsInput(m,myName):`<button class="btn ghost small" data-setwho="1">Set who you are</button>`}</div>
     <div class="rate-row">${summaryLine(m)}</div></div>`).join('')
-    +`<div class="row" style="margin-top:6px;"><button class="btn" id="btnApprove">✓ Approve &amp; build shopping list</button></div>`;
+    +`<div class="row" style="margin-top:6px;"><button class="btn" id="btnApprove">✓ Approve plan</button></div>`;
+  renderCalendarCard(); renderShopping();
 }
 function mealMatchesFilters(m){
   const types=['veg','poultry','meat','fish'].filter(t=>activeFilters.has(t));
@@ -1159,15 +1160,19 @@ function icsFor(events){
   out.push('END:VCALENDAR');
   return out.join('\r\n');
 }
-function buildCalendar(){
+function datedEvents(){ return plan.map(id=>({ m:meals.find(x=>x.id===id), day:assign[id] })).filter(e=>e.m && e.day); }
+function renderCalendarCard(){
   const area=$('calendarArea'); if(!area) return;
-  const events=plan.map(id=>({ m:meals.find(x=>x.id===id), day:assign[id] })).filter(e=>e.m && e.day);
-  if(!events.length){ area.innerHTML='<div class="banner warn">📅 No days assigned. Pick a day on each dinner above, then Approve again to add them to your calendar.</div>'; return; }
-  const url=URL.createObjectURL(new Blob([icsFor(events)],{type:'text/calendar'}));
+  const events=datedEvents();
+  if(!events.length){ area.innerHTML=''; return; }
   area.innerHTML=`<div class="section-title">📅 Calendar</div>
-    <div class="banner">${events.length} dinner(s) ready at 6:00 PM. Tap to add, then choose your <strong>Family</strong> calendar (set Family as your default calendar to make it one tap).</div>
-    <a class="btn" href="${url}" download="family-dinners.ics">📅 Add ${events.length} dinner(s) to Calendar</a>`;
-  try{ const a=document.createElement('a'); a.href=url; a.download='family-dinners.ics'; document.body.appendChild(a); a.click(); a.remove(); }catch(e){}
+    <div class="banner">${events.length} dinner(s) with days assigned, set for 6:00 PM. Add them to <em>your</em> phone's calendar — each person taps this on their own device.</div>
+    <button class="btn" id="btnDownloadIcs">📅 Add ${events.length} dinner(s) to my calendar</button>`;
+}
+function downloadIcs(){
+  const events=datedEvents(); if(!events.length) return;
+  const url=URL.createObjectURL(new Blob([icsFor(events)],{type:'text/calendar'}));
+  const a=document.createElement('a'); a.href=url; a.download='family-dinners.ics'; document.body.appendChild(a); a.click(); a.remove();
 }
 function cap(s){ return s[0].toUpperCase()+s.slice(1); }
 function setTab(t){ activeTab=t;
@@ -1188,23 +1193,56 @@ function consolidatedIngredients(){
       const e=map.get(k); e.count++; e.meals.push(m.name); }); });
   return [...map.values()].sort((a,b)=>a.name.localeCompare(b.name));
 }
-function buildShoppingList(){ tappedItems=new Set(); shoppingState=consolidatedIngredients().map(i=>({...i,checked:true})); renderShopping(); }
+/* The shopping list is a synced family document: anyone can build it from the
+   dated plan, and checks / Instacart-tap ✓s update live on every device. */
+function shoppingItems(){ return (shopping&&shopping.order||[]).map(k=>({key:k, ...(shopping.items||{})[k]})).filter(x=>x&&x.name); }
+async function buildShoppingList(){
+  const list=consolidatedIngredients();
+  if(!list.length){ toast('Assign days to some dinners first.'); return; }
+  const items={}, order=[];
+  list.forEach((it,i)=>{ const k='i'+i; order.push(k); items[k]={ name:it.name, count:it.count, meals:it.meals, checked:true, tapped:false }; });
+  chipsOpen=false;
+  await setDoc(shoppingDoc(), { order, items, builtAt:new Date().toISOString(), builtBy: meValid()?myName:'' });
+  toast('Shopping list built — it syncs to the whole family.');
+}
+async function setShoppingField(key, field, val){
+  try{ await updateDoc(shoppingDoc(), { ['items.'+key+'.'+field]: val }); }catch(e){}
+}
+async function setAllShopping(checked){
+  const items=shoppingItems(); if(!items.length) return;
+  const upd={}; items.forEach(it=>{ upd['items.'+it.key+'.checked']=checked; });
+  try{ await updateDoc(shoppingDoc(), upd); }catch(e){}
+}
 function renderShopping(){
-  const area=$('shoppingArea'); if(!shoppingState.length){ area.innerHTML=''; return; }
-  const rows=shoppingState.map((it,idx)=>`<div class="list-item"><input type="checkbox" data-item="${idx}" ${it.checked?'checked':''}><label>${escapeHtml(it.name)} ${it.count>1?`<span class="muted">×${it.count}</span>`:''} <span class="muted" style="font-size:.8rem;">— ${escapeHtml(it.meals.join(', '))}</span></label></div>`).join('');
-  const n=shoppingState.filter(i=>i.checked).length;
+  const area=$('shoppingArea'); if(!area) return;
+  const items=shoppingItems();
+  const canBuild=datedEvents().length>0;
+  if(!items.length){
+    area.innerHTML = canBuild
+      ? `<div class="section-title">🛒 Shopping list</div>
+         <div class="banner">No list yet for this plan.</div>
+         <button class="btn" id="btnBuildShopping">🛒 Build shopping list</button>`
+      : '';
+    return;
+  }
+  const rows=items.map(it=>`<div class="list-item"><input type="checkbox" data-item="${it.key}" ${it.checked?'checked':''}><label>${escapeHtml(it.name)} ${it.count>1?`<span class="muted">×${it.count}</span>`:''} <span class="muted" style="font-size:.8rem;">— ${escapeHtml((it.meals||[]).join(', '))}</span></label></div>`).join('');
+  const n=items.filter(i=>i.checked).length;
+  const builtInfo = shopping.builtAt ? `Built ${escapeHtml(fmtDate(shopping.builtAt))}${shopping.builtBy?' by '+escapeHtml(shopping.builtBy):''} · ` : '';
+  const chips = chipsOpen ? `<div class="banner">Tap each item to open it on Instacart (${escapeHtml(INSTACART_STORE_SLUG)}) — tapped items get a ✓ for the whole family.</div>
+      <div class="ic-links">${items.filter(i=>i.checked||i.tapped).map(i=>`<a class="ic-link ${i.tapped?'tapped':''}" data-ick="${i.key}" href="https://www.instacart.com/store/${INSTACART_STORE_SLUG}/s?k=${encodeURIComponent(i.name)}" target="_blank" rel="noopener">${escapeHtml(i.name)} →</a>`).join('')}</div>` : '';
   area.innerHTML=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">🛒 Shopping list
       <span><button class="btn ghost small" id="btnSelAll">Select all</button><button class="btn ghost small" id="btnClearAll">Clear all</button></span></div>
-    <div class="banner">Uncheck anything you already have. ${n} item(s) selected.</div>
+    <div class="banner">${builtInfo}Shared with your whole family — uncheck anything you already have. ${n} item(s) selected.</div>
     <div class="card">${rows}</div>
     <div class="row" style="margin-bottom:8px;">
       <button class="btn" id="btnInstacart">🛒 Send ${n} items to Instacart</button>
       <button class="btn secondary" id="btnCopy">📋 Copy list</button>
-    </div><div id="instacartResult"></div>`;
+      ${canBuild?`<button class="btn ghost small" id="btnBuildShopping" title="Replace with a fresh list from the current plan">🔄 Rebuild from plan</button>`:''}
+    </div><div id="instacartResult"></div>${chips}`;
 }
-function copyList(){ navigator.clipboard.writeText(shoppingState.filter(i=>i.checked).map(i=>'• '+i.name).join('\n')).then(()=>toast("Shopping list copied.")); }
+function copyList(){ navigator.clipboard.writeText(shoppingItems().filter(i=>i.checked).map(i=>'• '+i.name).join('\n')).then(()=>toast("Shopping list copied.")); }
 async function sendToInstacart(){
-  const chosen=shoppingState.filter(i=>i.checked); if(!chosen.length){ toast("Nothing checked."); return; }
+  const chosen=shoppingItems().filter(i=>i.checked); if(!chosen.length){ toast("Nothing checked."); return; }
   const res=$('instacartResult'); const btn=$('btnInstacart');
   const planNames=plan.map(id=>{ const m=meals.find(x=>x.id===id); return m?m.name:null; }).filter(Boolean);
   // 1) Backend (Cloudflare Worker) — works from any phone/browser
@@ -1232,9 +1270,9 @@ async function sendToInstacart(){
       toast("Items sent to Instacart."); return;
     }catch(e){ /* fall through */ }
   }
-  // 3) No backend / on a phone: tap-through Instacart search links (works anywhere, no API key)
-  const links=chosen.map(i=>`<a class="ic-link ${tappedItems.has(i.name)?'tapped':''}" data-ic="${escapeHtml(i.name)}" href="https://www.instacart.com/store/${INSTACART_STORE_SLUG}/s?k=${encodeURIComponent(i.name)}" target="_blank" rel="noopener">${escapeHtml(i.name)} →</a>`).join('');
-  res.innerHTML=`<div class="banner">Tap each item to open it on Instacart (${escapeHtml(INSTACART_STORE_SLUG)}) and add to your cart — tapped items get a ✓. Use “Copy list” if you'd rather paste.</div><div class="ic-links">${links}</div>`;
+  // 3) No backend / on a phone: tap-through Instacart search links (works anywhere, no API key).
+  // Rendered as part of the synced list so tapped ✓s show up for the whole family.
+  chipsOpen=true; renderShopping();
 }
 
 /* ---------------- Settings UI ---------------- */
@@ -1310,8 +1348,11 @@ document.addEventListener('click', e=>{
   if(t.dataset.rdel!==undefined && t.dataset.rdel!==''){ raterDraft.splice(+t.dataset.rdel,1); renderRatersEdit(); }
   if(t.id==='btnInstacart') sendToInstacart();
   if(t.id==='btnCopy') copyList();
-  if(t.id==='btnClearAll'){ shoppingState.forEach(i=>i.checked=false); renderShopping(); }
-  if(t.id==='btnSelAll'){ shoppingState.forEach(i=>i.checked=true); renderShopping(); }
+  if(t.id==='btnClearAll') setAllShopping(false);
+  if(t.id==='btnSelAll') setAllShopping(true);
+  if(t.id==='btnBuildShopping') buildShoppingList();
+  if(t.id==='btnDownloadIcs') downloadIcs();
+  if(t.dataset.ick) setShoppingField(t.dataset.ick,'tapped',true);   // chip opens Instacart via its href; ✓ syncs to everyone
   if(t.id==='btnPropose') proposePlan();
   if(t.id==='btnApprove') approvePlan();
   if(t.id==='btnAddDinners') openAddDinners();
@@ -1328,7 +1369,6 @@ document.addEventListener('click', e=>{
   if(t.dataset.removeplan) removeFromPlan(t.dataset.removeplan);
   if(t.dataset.setwho) openWho();
   if(t.dataset.editing) openIngEditor(t.dataset.editing);
-  if(t.dataset.ic!==undefined){ tappedItems.add(t.dataset.ic); t.classList.add('tapped'); }
 });
 document.addEventListener('toggle', e=>{ const d=e.target; if(!d.dataset) return;
   if(d.dataset.libid){ if(d.open) openLib.add(d.dataset.libid); else openLib.delete(d.dataset.libid); }
@@ -1337,13 +1377,12 @@ document.addEventListener('toggle', e=>{ const d=e.target; if(!d.dataset) return
 document.addEventListener('input', e=>{
   const t=e.target;
   if(t.dataset.rdraft!==undefined) raterDraft[+t.dataset.rdraft]=t.value;
-  if(t.dataset.item!==undefined){ shoppingState[+t.dataset.item].checked=t.checked; }
   if(t.dataset.libsearch!==undefined){ librarySearch=t.value; renderLibList(); }
   if(t.id==='genNotes') genCriteria.notes=t.value;
   if(t.id==='genHave') genCriteria.have=t.value;
 });
 document.addEventListener('change', e=>{ const t=e.target;
-  if(t.dataset.item!==undefined) renderShopping();
+  if(t.dataset.item!==undefined) setShoppingField(t.dataset.item,'checked',t.checked);
   if(t.dataset.assign!==undefined) writeAssign(t.dataset.assign, t.value);
   if(t.dataset.libsort!==undefined){ librarySort=t.value; localStorage.setItem('fdp_libsort',librarySort); renderLibrary(); }
   if(t.dataset.cookedsort!==undefined){ cookedSort=t.value; renderCooked(); }
@@ -1542,6 +1581,7 @@ function startListeners(){
     }
   });
   onSnapshot(stateDoc(), s=>{ plan=(s.exists()&&s.data().plan)||[]; assign=(s.exists()&&s.data().assign)||{}; renderPlan(); });
+  onSnapshot(shoppingDoc(), s=>{ shopping=s.exists()?s.data():null; renderShopping(); });
   onSnapshot(historyCol(), s=>{ history=s.docs.map(d=>d.data()).sort((a,b)=>(a.date||'').localeCompare(b.date||'')); });
 }
 
