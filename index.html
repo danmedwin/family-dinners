@@ -914,6 +914,7 @@ let cookedSort = 'date-new';
 const LIB_FILTERS=[{k:'veg',label:'Vegetarian'},{k:'poultry',label:'Poultry'},{k:'meat',label:'Beef'},{k:'fish',label:'Fish'},{k:'healthy',label:'Healthy'},{k:'nondairy',label:'Non-dairy'},{k:'dairy',label:'Light dairy'},{k:'u15',label:'⏱ <15'},{k:'15-30',label:'⏱ 15–30'},{k:'30-45',label:'⏱ 30–45'},{k:'45+',label:'⏱ 45+'}];
 let myName = '';   // set at sign-in from the per-family localStorage key
 let whoPrompted = false;
+let configLoaded = false;   // true once the family's real config doc has arrived
 function meValid(){ return myName && config.raters.includes(myName); }
 function orderedRaters(){ const o=config.raters.filter(r=>r!==myName); return meValid()?[myName,...o]:config.raters.slice(); }
 function raterLabel(r){ return escapeHtml(r)+(r===myName?' <span class="muted">(You)</span>':''); }
@@ -1094,7 +1095,10 @@ function renderWhoList(){
     || '<div class="empty-hint">Add family members in Settings first.</div>';
 }
 function setWho(enc){ myName=decodeURIComponent(enc); localStorage.setItem('fdp_me_'+famId,myName); closeModal('whoModal'); renderAll(); toast('Set to '+myName+' on this device.'); }
-function maybePromptWho(){ if(whoPrompted) return; if(config.raters.length && !meValid()){ whoPrompted=true; openWho(); } }
+/* Never prompt until the family's real config has loaded — before that,
+   config.raters is only the placeholder default, so a saved name would look
+   invalid and the modal would show the wrong (placeholder) list. */
+function maybePromptWho(){ if(whoPrompted||!configLoaded) return; if(config.raters.length && !meValid()){ whoPrompted=true; openWho(); } }
 /* ---- day assignment + calendar (.ics) ---- */
 function pad(n){ return String(n).padStart(2,'0'); }
 function recipeHtml(m){
@@ -1575,6 +1579,7 @@ function startListeners(){
   onSnapshot(configDoc(), s=>{
     if(s.exists()){
       config={...config, ...s.data()};
+      configLoaded=true;
       renderAll();
     } else {
       writeConfig({ raters:PLACEHOLDER_RATERS.slice(), batch:config.batch });
