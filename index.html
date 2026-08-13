@@ -402,6 +402,8 @@ details.prefs[open]>summary{ margin-bottom:4px;}
 
 <div class="toast" id="toast"></div>
 
+<p class="muted" style="text-align:center;font-size:.72rem;margin:1.5rem 0 1rem;opacity:.7">Family Dinner Planner v1.1.0</p>
+
 <script type="module">
 /* ============================================================
    1) CONFIGURATION  — replace the two blocks below (see SETUP.md)
@@ -429,16 +431,25 @@ const INSTACART_STORE_SLUG = "publix";
 // OPTIONAL: AI recipe-revise backend (Cloudflare Worker). Holds your Anthropic key as a
 // secret — never put the key here or in GitHub. Blank = manual recipe editing only.
 // See RECIPE_AI_SETUP.md.
-const RECIPE_AI_WORKER_URL = "https://recipe-ai.dan-medwin.workers.dev";
+let RECIPE_AI_WORKER_URL = "https://recipe-ai.dan-medwin.workers.dev";
 /* ============================================================ */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, setPersistence, browserLocalPersistence, signInWithEmailAndPassword,
          createUserWithEmailAndPassword, sendPasswordResetEmail, deleteUser,
          onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getFirestore, collection, doc, onSnapshot, setDoc, getDocs, getDoc,
-         updateDoc, addDoc, deleteDoc, deleteField, writeBatch, arrayUnion }
+import { getFirestore, collection as _collection, doc as _doc, onSnapshot as _onSnapshot,
+         setDoc as _setDoc, getDocs as _getDocs, getDoc as _getDoc, updateDoc as _updateDoc,
+         addDoc as _addDoc, deleteDoc as _deleteDoc, deleteField as _deleteField,
+         writeBatch as _writeBatch, arrayUnion as _arrayUnion }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+/* Bound with let so ?demo can point them at an in-memory store instead.
+   Outside demo mode these are the real Firestore functions, unchanged. */
+let collection = _collection, doc = _doc, onSnapshot = _onSnapshot, setDoc = _setDoc,
+    getDocs = _getDocs, getDoc = _getDoc, updateDoc = _updateDoc, addDoc = _addDoc,
+    deleteDoc = _deleteDoc, deleteField = _deleteField, writeBatch = _writeBatch,
+    arrayUnion = _arrayUnion;
 
 const NOT_CONFIGURED = firebaseConfig.apiKey.startsWith("REPLACE");
 let app, auth, db;
@@ -446,6 +457,116 @@ if (!NOT_CONFIGURED) {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
+}
+
+/* ---------------- ?demo: a sandbox family, in memory only ----------------
+   Linked from techrabbi.org/apps so the planner can be tried without an
+   account. Nothing reaches Firestore, nothing reaches the recipe worker, and
+   nothing survives a reload. The seeding path below is the real one, so the
+   demo family is built exactly the way a new family would be. */
+const DEMO = new URLSearchParams(location.search).has('demo');
+
+function demoFirestore(){
+  const docs = new Map();                    // "families/demo/meals/x" -> data
+  const subs = new Map();                    // path -> Set of callbacks
+  let autoId = 0;
+
+  const parent = (path) => path.slice(0, path.lastIndexOf('/'));
+  const idOf   = (path) => path.slice(path.lastIndexOf('/') + 1);
+  const copy   = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+  const DELETE = { __demoDelete: true };
+
+  const docSnap = (path) => ({
+    id: idOf(path),
+    exists: () => docs.has(path),
+    data: () => copy(docs.get(path)),
+  });
+  const colSnap = (path) => {
+    const list = [...docs.keys()].filter((k) => parent(k) === path).sort().map(docSnap);
+    return { docs: list, empty: list.length === 0, size: list.length,
+             forEach: (fn) => list.forEach(fn) };
+  };
+
+  const listen = (path, cb) => {
+    if (!subs.has(path)) subs.set(path, new Set());
+    subs.get(path).add(cb);
+    return () => subs.get(path).delete(cb);
+  };
+  const notify = (path) => {
+    (subs.get(path) || []).forEach((cb) => cb(docSnap(path)));
+    const col = parent(path);
+    (subs.get(col) || []).forEach((cb) => cb(colSnap(col)));
+  };
+
+  /* Firestore lets a patch key be a dotted path, and a value be a sentinel. */
+  const applyPatch = (target, patch) => {
+    Object.entries(patch).forEach(([key, value]) => {
+      const parts = key.split('.');
+      let node = target;
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (typeof node[parts[i]] !== 'object' || node[parts[i]] === null) node[parts[i]] = {};
+        node = node[parts[i]];
+      }
+      const leaf = parts[parts.length - 1];
+      if (value && value.__demoDelete) delete node[leaf];
+      else if (value && value.__demoUnion) {
+        const arr = Array.isArray(node[leaf]) ? node[leaf].slice() : [];
+        value.__demoUnion.forEach((v) => { if (!arr.includes(v)) arr.push(v); });
+        node[leaf] = arr;
+      } else node[leaf] = copy(value);
+    });
+  };
+
+  const write = (ref, data, opts) => {
+    const base = (opts && opts.merge && docs.has(ref.path)) ? docs.get(ref.path) : {};
+    applyPatch(base, data);
+    docs.set(ref.path, base);
+    notify(ref.path);
+  };
+
+  return {
+    collection: (_db, ...seg) => ({ __col: true, path: seg.join('/') }),
+    doc: (a, ...seg) => a && a.__col
+      ? { __doc: true, path: a.path + '/' + (seg[0] || 'demo-' + (++autoId)) }
+      : { __doc: true, path: seg.join('/') },
+    onSnapshot: (ref, cb) => {
+      const snap = () => (ref.__col ? colSnap(ref.path) : docSnap(ref.path));
+      cb(snap());
+      return listen(ref.path, () => cb(snap()));
+    },
+    setDoc: async (ref, data, opts) => write(ref, data, opts),
+    updateDoc: async (ref, patch) => write(ref, patch, { merge: true }),
+    addDoc: async (col, data) => {
+      const ref = { __doc: true, path: col.path + '/demo-' + (++autoId) };
+      write(ref, data);
+      return ref;
+    },
+    deleteDoc: async (ref) => { docs.delete(ref.path); notify(ref.path); },
+    getDoc: async (ref) => docSnap(ref.path),
+    getDocs: async (col) => colSnap(col.path),
+    deleteField: () => DELETE,
+    arrayUnion: (...vals) => ({ __demoUnion: vals }),
+    writeBatch: () => {
+      const ops = [];
+      const batch = {
+        set: (ref, data, opts) => { ops.push(() => write(ref, data, opts)); return batch; },
+        update: (ref, patch) => { ops.push(() => write(ref, patch, { merge: true })); return batch; },
+        delete: (ref) => { ops.push(() => { docs.delete(ref.path); notify(ref.path); }); return batch; },
+        commit: async () => ops.forEach((op) => op()),
+      };
+      return batch;
+    },
+  };
+}
+
+if (DEMO) {
+  const fake = demoFirestore();
+  collection = fake.collection; doc = fake.doc; onSnapshot = fake.onSnapshot;
+  setDoc = fake.setDoc; getDocs = fake.getDocs; getDoc = fake.getDoc;
+  updateDoc = fake.updateDoc; addDoc = fake.addDoc; deleteDoc = fake.deleteDoc;
+  deleteField = fake.deleteField; writeBatch = fake.writeBatch; arrayUnion = fake.arrayUnion;
+  RECIPE_AI_WORKER_URL = '';        // a public sandbox must not spend on recipes
+  db = {};
 }
 
 /* ---------------- Per-family Firestore paths ----------------
@@ -1595,6 +1716,28 @@ if('serviceWorker' in navigator){ window.addEventListener('load',()=>{ navigator
 if(NOT_CONFIGURED){
   $('authOverlay').style.display='none'; $('appWrap').style.display='';
   $('appWrap').insertAdjacentHTML('afterbegin','<div class="config-warn"><strong>Not configured yet.</strong> Open this file and fill in <code>firebaseConfig</code> at the top of the script (see SETUP.md), then redeploy.</div>');
+}else if(DEMO){
+  (async function startDemo(){
+    famId = 'demo';
+    myName = 'Avi';                     // skip the "who is using this device" step
+    // ensureFamilyData seeds from this, exactly as it would for a new family.
+    pendingSetup = {
+      famName: 'Demo',
+      invite: 'demo',
+      profile: { proteins:['veg','poultry','meat','fish'], dairy:'any', kosher:false, healthy:true },
+      raters: ['Avi','Maya','Noa'],
+    };
+    await ensureFamilyData({ uid:'demo', email:'demo@techrabbi.invalid' });
+    $('authOverlay').style.display='none';
+    $('appWrap').style.display='';
+    document.body.insertAdjacentHTML('beforeend',
+      '<div id="demoFlag" style="position:fixed;bottom:10px;right:10px;background:#fff3cd;' +
+      'border:1px solid #e6cf7a;color:#7a5a12;font-size:.75rem;padding:5px 9px;' +
+      'border-radius:8px;z-index:9999">Demo &middot; nothing is saved</div>');
+    startListeners();
+    // A demo that opens on "no plan yet" shows nothing, so build one.
+    setTimeout(() => { try { proposePlan(); } catch (e) { console.warn('demo plan', e); } }, 400);
+  })();
 }else{
   $('authBtn').onclick=doAuth;
   $('authToggle').onclick=e=>{ e.preventDefault(); setAuthMode(authMode==='signin'?'signup':'signin'); };
