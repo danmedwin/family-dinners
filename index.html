@@ -402,7 +402,7 @@ details.prefs[open]>summary{ margin-bottom:4px;}
 
 <div class="toast" id="toast"></div>
 
-<p class="muted" style="text-align:center;font-size:.72rem;margin:1.5rem 0 1rem;opacity:.7">Family Dinner Planner v1.1.0</p>
+<p class="muted" style="text-align:center;font-size:.72rem;margin:1.5rem 0 1rem;opacity:.7">Family Dinner Planner v1.2.0</p>
 
 <script type="module">
 /* ============================================================
@@ -653,6 +653,154 @@ const RECIPES = {
   "Mango Black Bean Tacos":"1. Warm the rinsed black beans.\n2. Dice mango and avocado; shred the cabbage.\n3. Warm the tortillas.\n4. Fill with beans, mango, avocado, and cabbage; squeeze lime and add cilantro.",
   "Herb-Roasted Turkey Breast & Veggies":"1. Heat oven to 375°F.\n2. Rub turkey breast with oil, mixed herbs, salt, and pepper.\n3. Surround with carrots and baby potatoes.\n4. Roast until the turkey reaches 165°F, about 60–75 min.\n5. Add the green beans for the last 15 min; rest before slicing."
 };
+
+/* ---------------- Fresh pack (Nov 2026): 30 new dinners for our family ----------------
+   No beans/legumes, no pork or shellfish. Meat + dairy together is fine here; lactose-free
+   dairy works anywhere dairy is listed. Added once to the admin family's library by
+   topUpFreshPack() below, skipping any name already in the library. */
+const FRESH_PACK_VERSION = 1;
+const FRESH_PACK = [
+  { name:"Chicken Tikka Masala", type:"poultry", dairy:true, healthy:true, prep:"30-45",
+    desc:"Yogurt-marinated chicken in a creamy spiced tomato sauce over basmati rice.",
+    ing:["chicken thighs","plain yogurt","garam masala","crushed tomatoes","light coconut milk","yellow onion","garlic","fresh ginger","basmati rice","cilantro"],
+    recipe:"1. Toss bite-size chicken with yogurt, 1 tsp garam masala, and salt; let sit while you start the rice.\n2. Cook the basmati rice.\n3. Sear the chicken in a hot pan until browned, then remove.\n4. Sauté diced onion until soft; add garlic, ginger, and 1 more tsp garam masala for 1 min.\n5. Stir in crushed tomatoes and coconut milk; simmer 10 min.\n6. Return the chicken and simmer until it reaches 165°F, about 8 min.\n7. Serve over rice with cilantro." },
+  { name:"Greek Lemon Chicken & Potatoes", type:"poultry", dairy:false, healthy:true, prep:"45+",
+    desc:"Oregano-and-lemon roasted chicken thighs with golden potato wedges.",
+    ing:["bone-in chicken thighs","yukon gold potatoes","lemon","garlic","dried oregano","olive oil","chicken broth"],
+    recipe:"1. Heat oven to 425°F.\n2. Cut potatoes into wedges.\n3. Whisk olive oil, lemon juice and zest, minced garlic, oregano, salt, and pepper.\n4. Toss chicken and potatoes in the mixture and spread in a roasting pan.\n5. Pour 1/2 cup broth into the pan.\n6. Roast 45–50 min, until the chicken reaches 165°F and the potatoes are crisp at the edges." },
+  { name:"Thai Basil Chicken", type:"poultry", dairy:false, healthy:true, prep:"15-30",
+    desc:"Quick stir-fried ground chicken with basil, garlic, and peppers over jasmine rice.",
+    ing:["ground chicken","fresh basil","garlic","bell pepper","soy sauce","brown sugar","jasmine rice","eggs"],
+    recipe:"1. Cook the jasmine rice.\n2. Stir together 3 tbsp soy sauce, 1 tbsp water, and 1 tsp brown sugar.\n3. Stir-fry minced garlic and sliced pepper 1 min in a hot pan.\n4. Add the ground chicken and cook, breaking it up, until browned.\n5. Pour in the sauce, then stir in a big handful of basil until wilted.\n6. Fry an egg per person and serve on top of the rice and chicken." },
+  { name:"Baked Chicken Parmesan & Spaghetti", type:"poultry", dairy:true, healthy:false, prep:"30-45",
+    desc:"Crispy oven-baked chicken cutlets with marinara and melted mozzarella.",
+    ing:["chicken breast","panko breadcrumbs","grated parmesan","eggs","marinara sauce","shredded mozzarella","spaghetti","fresh basil"],
+    recipe:"1. Heat oven to 425°F.\n2. Slice chicken breasts into thin cutlets.\n3. Dip each in beaten egg, then a mix of panko and parmesan.\n4. Bake on an oiled sheet 15 min, flipping halfway.\n5. Top each with marinara and mozzarella; bake 5–7 min more until bubbly.\n6. Meanwhile cook the spaghetti and toss with warm marinara.\n7. Serve with basil on top." },
+  { name:"Persian Chicken Kebabs with Saffron Rice", type:"poultry", dairy:true, healthy:true, prep:"30-45",
+    desc:"Joojeh-style lemon-saffron chicken skewers with fluffy rice and tomatoes.",
+    ing:["chicken breast","plain yogurt","lemon","saffron","yellow onion","basmati rice","cherry tomatoes","wooden skewers"],
+    recipe:"1. Steep a pinch of crushed saffron in 2 tbsp hot water.\n2. Mix yogurt, lemon juice, grated onion, half the saffron water, and salt; add cubed chicken and marinate at least 20 min (or overnight).\n3. Cook the rice; drizzle the rest of the saffron water over the top when done.\n4. Thread chicken and cherry tomatoes onto skewers.\n5. Grill or broil 10–12 min, turning, until the chicken reaches 165°F.\n6. Serve over the saffron rice." },
+  { name:"Chicken Pad Thai", type:"poultry", dairy:false, healthy:true, prep:"30-45",
+    desc:"Rice noodles with chicken, egg, and a tangy-sweet tamarind sauce.",
+    ing:["rice noodles","chicken breast","eggs","tamarind paste","fish sauce (kosher)","brown sugar","garlic","scallions","roasted peanuts","lime"],
+    recipe:"1. Soak the rice noodles in hot water until pliable, about 10 min; drain.\n2. Whisk tamarind paste, fish sauce, and brown sugar.\n3. Stir-fry thin-sliced chicken with garlic until cooked; push aside.\n4. Scramble 2 eggs in the pan.\n5. Add the noodles and sauce; toss 2–3 min until coated and tender.\n6. Top with scallions, chopped peanuts, and lime wedges." },
+  { name:"Moroccan Chicken Tagine with Couscous", type:"poultry", dairy:false, healthy:true, prep:"45+",
+    desc:"Warmly spiced chicken braised with apricots and carrots, served over couscous.",
+    ing:["chicken thighs","dried apricots","carrots","yellow onion","garlic","ground cumin","ground cinnamon","chicken broth","couscous","toasted almonds"],
+    recipe:"1. Brown the chicken thighs in a Dutch oven; remove.\n2. Sauté sliced onion and carrots 5 min; add garlic, 1 tsp cumin, and 1/2 tsp cinnamon.\n3. Return the chicken with 1 1/2 cups broth and the apricots.\n4. Cover and simmer 35 min, until tender.\n5. Prepare the couscous.\n6. Serve the tagine over couscous with toasted almonds." },
+  { name:"Chicken Schnitzel with Cucumber Salad", type:"poultry", dairy:false, healthy:false, prep:"30-45",
+    desc:"Israeli-style crispy schnitzel with a bright cucumber-dill salad.",
+    ing:["chicken breast","eggs","breadcrumbs","flour","sunflower oil","cucumbers","red onion","fresh dill","white vinegar","lemon"],
+    recipe:"1. Pound chicken breasts thin and season with salt.\n2. Dredge in flour, then beaten egg, then breadcrumbs.\n3. Pan-fry in 1/4 inch of oil, 3–4 min per side, until golden and cooked through.\n4. Thinly slice cucumbers and red onion; toss with dill, vinegar, a pinch of sugar, and salt.\n5. Serve schnitzel with lemon wedges and the salad." },
+  { name:"Japanese Chicken Katsu Curry", type:"poultry", dairy:false, healthy:false, prep:"30-45",
+    desc:"Crispy panko chicken with a mild, sweet Japanese curry and rice.",
+    ing:["chicken breast","panko breadcrumbs","eggs","flour","japanese curry roux","yellow onion","carrots","yukon gold potatoes","short grain rice"],
+    recipe:"1. Cook the rice.\n2. Sauté diced onion, carrot, and potato 5 min; add water per the curry package and simmer 15 min.\n3. Turn off heat, stir in the curry roux until melted, then simmer 5 min to thicken.\n4. Meanwhile, bread the chicken (flour, egg, panko) and pan-fry or bake at 425°F until golden and 165°F inside.\n5. Slice the katsu and serve over rice with curry ladled alongside." },
+  { name:"Chicken Caesar Wraps", type:"poultry", dairy:true, healthy:true, prep:"15-30",
+    desc:"Grilled chicken, crisp romaine, and parmesan rolled up in big tortillas.",
+    ing:["chicken breast","romaine lettuce","caesar dressing","grated parmesan","large flour tortillas","cherry tomatoes","lemon"],
+    recipe:"1. Season chicken with salt, pepper, and olive oil; grill or pan-sear to 165°F, then slice.\n2. Chop the romaine and halve the tomatoes.\n3. Toss lettuce with Caesar dressing, a squeeze of lemon, and parmesan.\n4. Fill tortillas with salad and chicken; roll up tightly and slice in half." },
+  { name:"Beef Kofta with Tahini & Israeli Salad", type:"meat", dairy:false, healthy:true, prep:"30-45",
+    desc:"Spiced beef kebabs with chopped salad, tahini sauce, and warm pita.",
+    ing:["ground beef","yellow onion","parsley","ground cumin","paprika","tahini","lemon","cucumbers","tomatoes","pita bread"],
+    recipe:"1. Mix ground beef with grated onion, chopped parsley, 1 tsp cumin, 1 tsp paprika, and salt.\n2. Shape into small logs (or onto skewers).\n3. Grill or broil 8–10 min, turning, until cooked through.\n4. Finely dice cucumbers and tomatoes; dress with lemon, olive oil, and salt.\n5. Thin tahini with lemon juice and water.\n6. Serve kofta in warm pita with salad and tahini." },
+  { name:"Shepherd's Pie", type:"meat", dairy:false, healthy:true, prep:"45+",
+    desc:"Savory ground beef and vegetables under a golden mashed potato crust.",
+    ing:["ground beef","yukon gold potatoes","carrots","corn","yellow onion","tomato paste","beef broth","olive oil","fresh thyme"],
+    recipe:"1. Boil peeled potatoes until tender; mash with olive oil, a splash of the cooking water, and salt.\n2. Heat oven to 400°F.\n3. Brown the beef with diced onion and carrots.\n4. Stir in 2 tbsp tomato paste, thyme, corn, and 3/4 cup broth; simmer 5 min to thicken.\n5. Spread in a baking dish and top with the mashed potatoes.\n6. Bake 20–25 min, until the top is golden." },
+  { name:"Philly Cheesesteaks", type:"meat", dairy:true, healthy:false, prep:"15-30",
+    desc:"Thin-sliced steak with peppers, onions, and melted provolone on hoagie rolls.",
+    ing:["shaved ribeye or sirloin","provolone cheese","green bell pepper","yellow onion","hoagie rolls","olive oil"],
+    recipe:"1. Slice the pepper and onion; sauté in oil until soft and browned, then push aside.\n2. Add the shaved steak, season with salt and pepper, and cook 2–3 min, chopping it with the spatula.\n3. Mix the steak with the vegetables and divide into portions in the pan.\n4. Lay provolone over each portion and let it melt.\n5. Scoop into toasted rolls." },
+  { name:"Mongolian Beef", type:"meat", dairy:false, healthy:true, prep:"15-30",
+    desc:"Crispy-edged beef in a sweet garlic-ginger sauce with scallions over rice.",
+    ing:["flank steak","cornstarch","soy sauce","brown sugar","garlic","fresh ginger","scallions","jasmine rice","broccoli"],
+    recipe:"1. Cook the rice and steam the broccoli.\n2. Slice the steak thin against the grain and toss with cornstarch.\n3. Sear the beef in batches until crisp; remove.\n4. Sauté garlic and ginger 30 sec; add 1/3 cup soy sauce, 1/3 cup brown sugar, and 1/4 cup water; simmer until syrupy.\n5. Return the beef and scallions and toss to coat.\n6. Serve over rice with the broccoli." },
+  { name:"Beef Bolognese over Pappardelle", type:"meat", dairy:true, healthy:true, prep:"45+",
+    desc:"Slow-simmered meat sauce over wide noodles, finished with parmesan.",
+    ing:["ground beef","yellow onion","carrots","celery","garlic","tomato paste","crushed tomatoes","milk","pappardelle","grated parmesan"],
+    recipe:"1. Finely chop onion, carrot, and celery; sauté in olive oil 8 min.\n2. Add garlic and the beef; cook until browned.\n3. Stir in 2 tbsp tomato paste, then crushed tomatoes and 1/2 cup milk.\n4. Simmer uncovered 40 min, stirring now and then.\n5. Cook the pappardelle and toss with the sauce.\n6. Serve with parmesan." },
+  { name:"Beef & Veggie Lo Mein", type:"meat", dairy:false, healthy:true, prep:"15-30",
+    desc:"Soft egg noodles tossed with beef, cabbage, carrots, and a savory sauce.",
+    ing:["lo mein noodles","sirloin steak","napa cabbage","carrots","mushrooms","scallions","soy sauce","sesame oil","garlic"],
+    recipe:"1. Cook the noodles; drain and toss with a little sesame oil.\n2. Slice the steak thin and stir-fry until browned; remove.\n3. Stir-fry sliced mushrooms, carrots, and cabbage with garlic 3–4 min.\n4. Add noodles, beef, 3 tbsp soy sauce, and 1 tsp sesame oil; toss until hot.\n5. Finish with scallions." },
+  { name:"Greek Lamb Meatballs with Orzo & Feta", type:"meat", dairy:true, healthy:true, prep:"30-45",
+    desc:"Herby lamb meatballs over lemony orzo with spinach, feta, and tzatziki.",
+    ing:["ground lamb","orzo","baby spinach","feta cheese","lemon","fresh mint","garlic","red onion","tzatziki"],
+    recipe:"1. Mix lamb with grated red onion, minced garlic, chopped mint, salt, and pepper; roll into small balls.\n2. Bake at 425°F for 15 min, or brown in a skillet until cooked through.\n3. Cook the orzo; drain and stir in spinach until wilted, plus lemon zest, juice, and olive oil.\n4. Top the orzo with meatballs, crumbled feta, and a spoonful of tzatziki." },
+  { name:"Steak with Chimichurri & Crispy Potatoes", type:"meat", dairy:false, healthy:true, prep:"30-45",
+    desc:"Seared steak with a bright parsley-garlic sauce and smashed roasted potatoes.",
+    ing:["sirloin or flat iron steak","baby potatoes","parsley","garlic","red wine vinegar","red pepper flakes","olive oil","arugula"],
+    recipe:"1. Boil baby potatoes 15 min; drain, smash flat on an oiled sheet, and roast at 450°F for 20 min.\n2. Blend or finely chop parsley, garlic, vinegar, red pepper flakes, olive oil, and salt for the chimichurri.\n3. Season the steak and sear 4–5 min per side for medium; rest 5 min and slice.\n4. Serve with the potatoes, arugula, and chimichurri spooned over." },
+  { name:"Beef & Barley Soup", type:"meat", dairy:false, healthy:true, prep:"45+",
+    desc:"Hearty stew-like soup with tender beef, mushrooms, and pearl barley.",
+    ing:["beef stew meat","pearl barley","mushrooms","carrots","celery","yellow onion","beef broth","tomato paste","fresh thyme","crusty bread"],
+    recipe:"1. Brown the beef in a large pot; remove.\n2. Sauté onion, carrot, celery, and mushrooms 6 min; stir in 1 tbsp tomato paste.\n3. Return the beef with 8 cups broth and thyme; simmer covered 45 min.\n4. Add 3/4 cup rinsed barley; simmer 30–35 min more, until tender.\n5. Season and serve with crusty bread." },
+  { name:"Crispy Fish Tacos with Lime Slaw", type:"fish", dairy:false, healthy:true, prep:"15-30",
+    desc:"Panko-crusted white fish in warm tortillas with crunchy lime cabbage slaw.",
+    ing:["cod or tilapia fillets","panko breadcrumbs","chili powder","corn tortillas","green cabbage","lime","mayonnaise","avocado","cilantro"],
+    recipe:"1. Heat oven to 425°F.\n2. Season fish with chili powder and salt, press into panko, and bake 12–15 min until it flakes.\n3. Shred cabbage and toss with lime juice, a spoonful of mayo, and salt.\n4. Warm the tortillas.\n5. Fill with fish, slaw, sliced avocado, and cilantro." },
+  { name:"Maple-Dijon Salmon with Sweet Potatoes", type:"fish", dairy:false, healthy:true, prep:"30-45",
+    desc:"Sweet-tangy glazed salmon on a sheet pan with roasted sweet potatoes and broccoli.",
+    ing:["salmon fillet","maple syrup","dijon mustard","sweet potatoes","broccoli","olive oil","garlic"],
+    recipe:"1. Heat oven to 425°F.\n2. Cube the sweet potatoes, toss with oil and salt, and roast 15 min.\n3. Whisk 2 tbsp maple syrup, 2 tbsp dijon, and minced garlic.\n4. Add the salmon and broccoli florets (tossed with oil) to the pan; brush the salmon with glaze.\n5. Roast 12–15 min more, until the salmon flakes." },
+  { name:"Salmon Poke Bowls", type:"fish", dairy:false, healthy:true, prep:"15-30",
+    desc:"Build-your-own bowls with seasoned salmon, rice, cucumber, mango, and avocado.",
+    ing:["sushi-grade salmon","sushi rice","soy sauce","sesame oil","rice vinegar","cucumber","mango","avocado","sesame seeds","scallions"],
+    recipe:"1. Cook the rice and season with a splash of rice vinegar.\n2. Cube the salmon and toss with soy sauce, sesame oil, and scallions.\n3. Dice cucumber, mango, and avocado.\n4. Build bowls with rice, salmon, and toppings; sprinkle with sesame seeds.\n(For anyone who wants it cooked: sear the salmon cubes 2 min instead.)" },
+  { name:"Chraime (Sephardic Spiced Fish)", type:"fish", dairy:false, healthy:true, prep:"30-45",
+    desc:"White fish simmered in a garlicky, paprika-rich tomato sauce, served with challah or rice.",
+    ing:["cod or halibut fillets","crushed tomatoes","red bell pepper","garlic","sweet paprika","ground cumin","cilantro","lemon","challah or rice"],
+    recipe:"1. Sauté sliced red pepper and plenty of garlic in olive oil 5 min.\n2. Stir in 1 tbsp paprika and 1 tsp cumin for 30 sec.\n3. Add crushed tomatoes and 1/2 cup water; simmer 10 min.\n4. Nestle in the salted fish; cover and simmer 10–12 min, until it flakes.\n5. Finish with lemon and cilantro; serve with challah or rice for the sauce." },
+  { name:"Parmesan-Crusted Tilapia & Roasted Broccoli", type:"fish", dairy:true, healthy:true, prep:"15-30",
+    desc:"Crisp, cheesy fish fillets with lemony roasted broccoli and rice.",
+    ing:["tilapia fillets","grated parmesan","panko breadcrumbs","lemon","broccoli","olive oil","garlic powder","white rice"],
+    recipe:"1. Heat oven to 425°F and start the rice.\n2. Toss broccoli with oil and salt; roast 10 min.\n3. Mix parmesan, panko, garlic powder, and a little oil; press onto the fish.\n4. Add the fish to the pan and roast 10–12 min, until golden and flaky.\n5. Squeeze lemon over everything." },
+  { name:"Salmon Cakes with Lemon-Dill Sauce", type:"fish", dairy:true, healthy:true, prep:"30-45",
+    desc:"Golden salmon patties with a creamy lemon-dill dip and a green salad.",
+    ing:["salmon fillet","eggs","panko breadcrumbs","scallions","dijon mustard","plain greek yogurt","fresh dill","lemon","mixed greens"],
+    recipe:"1. Bake the salmon at 400°F for 12 min; cool slightly and flake.\n2. Mix with 1 egg, 1/2 cup panko, sliced scallions, 1 tsp dijon, and salt.\n3. Form into patties and pan-fry 3–4 min per side until golden.\n4. Stir yogurt with chopped dill, lemon juice, and salt.\n5. Serve with the sauce and dressed greens." },
+  { name:"Shakshuka with Feta & Pita", type:"veg", dairy:true, healthy:true, prep:"30-45",
+    desc:"Eggs poached in a spiced tomato-pepper sauce, topped with feta.",
+    ing:["eggs","crushed tomatoes","red bell pepper","yellow onion","garlic","ground cumin","sweet paprika","feta cheese","parsley","pita bread"],
+    recipe:"1. Sauté sliced onion and pepper in olive oil 8 min.\n2. Add garlic, 1 tsp cumin, and 1 tsp paprika for 30 sec.\n3. Pour in crushed tomatoes; simmer 10 min until thick.\n4. Make wells and crack in the eggs; cover and cook 6–8 min, until the whites set.\n5. Top with crumbled feta and parsley; serve with warm pita." },
+  { name:"Butternut Squash Risotto", type:"veg", dairy:true, healthy:true, prep:"45+",
+    desc:"Creamy arborio rice with roasted butternut squash, sage, and parmesan.",
+    ing:["arborio rice","butternut squash","vegetable broth","yellow onion","garlic","fresh sage","grated parmesan","butter","dry white wine"],
+    recipe:"1. Roast cubed squash with oil and salt at 425°F for 25 min.\n2. Warm 6 cups broth in a pot.\n3. Sauté diced onion in butter; add garlic and 1 1/2 cups rice, stirring 2 min.\n4. Add a splash of wine, then the broth one ladle at a time, stirring until absorbed, about 20 min.\n5. Fold in the squash, chopped sage, and parmesan; season and serve." },
+  { name:"Eggplant Parmesan", type:"veg", dairy:true, healthy:false, prep:"45+",
+    desc:"Layers of crispy baked eggplant, marinara, and melted cheese.",
+    ing:["eggplants","eggs","panko breadcrumbs","marinara sauce","shredded mozzarella","grated parmesan","fresh basil","spaghetti"],
+    recipe:"1. Heat oven to 425°F.\n2. Slice eggplant into rounds; dip in egg, then panko mixed with parmesan.\n3. Bake on oiled sheets 20 min, flipping once.\n4. Layer marinara, eggplant, and mozzarella in a baking dish; repeat.\n5. Lower oven to 375°F and bake 20–25 min until bubbly.\n6. Serve with basil and spaghetti on the side." },
+  { name:"Veggie Fried Rice with Egg", type:"veg", dairy:false, healthy:true, prep:"15-30",
+    desc:"Day-old rice stir-fried with eggs, carrots, corn, and scallions.",
+    ing:["cooked jasmine rice (day-old)","eggs","carrots","corn","scallions","garlic","soy sauce","sesame oil"],
+    recipe:"1. Scramble 3 eggs in a hot oiled pan; remove.\n2. Stir-fry diced carrots 3 min, then garlic and corn 1 min.\n3. Add the cold rice and press it into the pan; let it crisp, then toss.\n4. Add soy sauce and sesame oil, then the eggs and scallions.\n5. Toss until hot and serve." },
+  { name:"Baked Mac & Cheese with Roasted Broccoli", type:"veg", dairy:true, healthy:false, prep:"30-45",
+    desc:"Creamy cheddar mac with a crunchy top and a big pan of roasted broccoli.",
+    ing:["elbow macaroni","sharp cheddar","milk","butter","flour","panko breadcrumbs","broccoli","olive oil"],
+    recipe:"1. Heat oven to 400°F.\n2. Cook the macaroni 2 min short of done; drain.\n3. Melt 3 tbsp butter, whisk in 3 tbsp flour, then 2 1/2 cups milk; simmer until thick.\n4. Stir in 3 cups shredded cheddar and season; fold in the pasta.\n5. Pour into a baking dish, top with panko, and bake 20 min.\n6. Roast broccoli with oil and salt on another rack at the same time." }
+];
+
+/* One-time top-up: adds the fresh pack to OUR family's library only (the admin account).
+   Reads config + meals straight from Firestore so it never relies on half-loaded state,
+   and writes the meals and the "done" flag in one batch so it can't run twice. */
+let freshPackChecked=false;
+async function topUpFreshPack(){
+  if(freshPackChecked || !famId || !isAdmin()) return; freshPackChecked=true;
+  try{
+    const cfg=await getDoc(configDoc());
+    if(((cfg.exists() && cfg.data().freshPack) || 0) >= FRESH_PACK_VERSION) return;
+    const snap=await getDocs(mealsCol());
+    const have=new Set(snap.docs.map(d=>String(d.data().name||'').trim().toLowerCase()));
+    const add=FRESH_PACK.filter(m=>!have.has(m.name.toLowerCase()));
+    const b=writeBatch(db); const now=Date.now();
+    add.forEach((m,i)=> b.set(doc(mealsCol()), {...m, ratings:{}, prefs:{}, createdAt:now+i}));
+    b.set(configDoc(), { freshPack:FRESH_PACK_VERSION }, { merge:true });
+    await b.commit();
+    if(add.length) toast(add.length+' fresh dinner ideas added to your Library.');
+  }catch(e){ freshPackChecked=false; console.warn('Fresh pack top-up failed', e); }
+}
 
 /* ---------------- In-memory state (synced from Firestore) ---------------- */
 let meals = [];                 // [{id, name, type, dairy, healthy, desc, ing, ratings:{rater:val}}]
@@ -1696,7 +1844,7 @@ async function touchDirectory(){
 }
 function startListeners(){
   setTimeout(touchDirectory, 4000);   // after the first config + meals snapshots land
-  onSnapshot(mealsCol(), s=>{ meals=s.docs.map(d=>({id:d.id, ...d.data(), ratings:d.data().ratings||{}, prefs:d.data().prefs||{}})); setSync(true); renderAll(); backfillRecipes(); }, ()=>setSync(false));
+  onSnapshot(mealsCol(), s=>{ meals=s.docs.map(d=>({id:d.id, ...d.data(), ratings:d.data().ratings||{}, prefs:d.data().prefs||{}})); setSync(true); renderAll(); backfillRecipes(); topUpFreshPack(); }, ()=>setSync(false));
   onSnapshot(configDoc(), s=>{
     if(s.exists()){
       config={...config, ...s.data()};
